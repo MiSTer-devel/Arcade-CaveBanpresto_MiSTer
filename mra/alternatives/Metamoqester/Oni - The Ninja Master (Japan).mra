@@ -24,39 +24,39 @@
       <part name="bp947a.u29" crc="cf0f3f3b" map="12" />
     </interleave>
 
-    <!-- erased 93C46 EEPROM seed -->
-    <part>
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-      ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-    </part>
+<!-- erased 93C46 EEPROM seed -->
+<part>
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+</part>
 
-    <!-- sound program ROM -->
-    <part name="bp947a.u20" crc="a4a36170" />
+<!-- sound program ROM -->
+<part name="bp947a.u20" crc="a4a36170" />
 
-    <!-- sprites -->
-    <part name="bp947a.u49" crc="09749531" />
-    <part name="bp947a.u50" crc="19cea8b2" />
-    <part name="bp947a.u51" crc="c19bed67" />
-    <part name="bp947a.u52" crc="70c64875" />
+<!-- sprites -->
+<part name="bp947a.u49" crc="09749531" />
+<part name="bp947a.u50" crc="19cea8b2" />
+<part name="bp947a.u51" crc="c19bed67" />
+<part name="bp947a.u52" crc="70c64875" />
 
-    <!-- layer 0 -->
-    <part name="bp947a.u48" crc="04ff6a3d" />
+<!-- layer 0 -->
+<part name="bp947a.u48" crc="04ff6a3d" />
 
-    <!-- layer 1 -->
-    <part name="bp947a.u47" crc="0de42827" />
+<!-- layer 1 -->
+<part name="bp947a.u47" crc="0de42827" />
 
-    <!-- layer 2 -->
-    <part name="bp947a.u46" crc="0f9c906e" />
+<!-- layer 2 -->
+<part name="bp947a.u46" crc="0f9c906e" />
 
-    <!-- PCM ROMs -->
-    <part name="bp947a.u42" crc="2ce8ff2a" />
-    <part name="bp947a.u37" crc="c3077c8f" />
+<!-- PCM ROMs -->
+<part name="bp947a.u42" crc="2ce8ff2a" />
+<part name="bp947a.u37" crc="c3077c8f" />
   </rom>
 
   <!-- select game -->

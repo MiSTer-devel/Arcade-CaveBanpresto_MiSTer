@@ -80,6 +80,10 @@ localparam CONF_STR = {
   "P1,Hardware;",
 `endif
   "P1OIK,PCB,Hotdog Storm,Mazinger Z,Air Gallet,Sailor Moon,Metamoqester;",
+  "P2,Audio Settings;",
+  "P2O[35:32],FM Volume,100%,125%,150%,175%,200%,0%,25%,50%,75%;",
+  "P2O[39:36],BGM Volume,100%,125%,150%,175%,200%,0%,25%,50%,75%;",
+  "P2O[43:40],SFX Volume,100%,125%,150%,175%,200%,0%,25%,50%,75%;",
   "-;",
   "R0,Reset;",
   "J,B0,B1,B2,B3,Start,Coin,Pause;",
@@ -265,6 +269,28 @@ wire scandoubler = fx || forced_scandoubler;
 wire [2:0] banpresto_menu_game_select = status[20:18];
 wire [3:0] banpresto_menu_game_index = {1'b0, banpresto_menu_game_select};
 
+function automatic [3:0] audio_trim_step;
+  input [3:0] menu_value;
+  begin
+    case (menu_value)
+      4'd0: audio_trim_step = 4'd4; // 100%
+      4'd1: audio_trim_step = 4'd5; // 125%
+      4'd2: audio_trim_step = 4'd6; // 150%
+      4'd3: audio_trim_step = 4'd7; // 175%
+      4'd4: audio_trim_step = 4'd8; // 200%
+      4'd5: audio_trim_step = 4'd0; // 0%
+      4'd6: audio_trim_step = 4'd1; // 25%
+      4'd7: audio_trim_step = 4'd2; // 50%
+      4'd8: audio_trim_step = 4'd3; // 75%
+      default: audio_trim_step = 4'd4;
+    endcase
+  end
+endfunction
+
+wire [3:0] audio_trim_fm = audio_trim_step(status[35:32]);
+wire [3:0] audio_trim_bgm = audio_trim_step(status[39:36]);
+wire [3:0] audio_trim_sfx = audio_trim_step(status[43:40]);
+
 assign VGA_F1 = 0;
 assign VGA_SL = sl[1:0];
 assign VGA_SCALER = 0;
@@ -427,6 +453,9 @@ Cave cave (
   .options_gameIndex(banpresto_menu_game_index),
   .options_debugVideo(debug_video),
   .options_debugView(debug_view),
+  .options_audioTrim_fm(audio_trim_fm),
+  .options_audioTrim_bgm(audio_trim_bgm),
+  .options_audioTrim_sfx(audio_trim_sfx),
   // Joystick signals
   .player_0_up(player_1_up),
   .player_0_down(player_1_down),

@@ -243,6 +243,7 @@ module MemSys(
     gameUsesSpriteDecrypt ? DECRYPTED_SPRITE_ROM_OFFSET : io_gameConfig_sprite_romOffset;
   wire [31:0] spriteTileRomLocalAddr =
     gameUsesSpriteDecrypt ? {10'h000, io_spriteTileRom_addr[21:0]} :
+    gameIsAirGallet    ? {10'h000, io_spriteTileRom_addr[21:0]} :
     gameIsMetmqstr       ? {9'h000,  io_spriteTileRom_addr[22:0]} :
                            io_spriteTileRom_addr;
   wire [31:0] ddrSpriteTileRomAddr =
