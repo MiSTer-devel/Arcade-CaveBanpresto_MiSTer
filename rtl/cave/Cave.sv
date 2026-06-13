@@ -352,10 +352,18 @@ module Cave(
   reg  [1:0]   metmqstrSpriteBankDelay;
   reg  [3:0]   gameIndexReg;
   reg          gameIndexReg_latched;
+  reg          gameIndexCpuLoadToggle = 1'b0;
+  (* preserve, useioff = 0, altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+  reg          gameIndexCpuToggleSync0 = 1'b0;
+  (* preserve, useioff = 0, altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+  reg          gameIndexCpuToggleSync1 = 1'b0;
+  reg          gameIndexCpuToggleSeen = 1'b0;
+  reg  [3:0]   gameIndexCpuReg = 4'h0;
   reg          ioctlDownloadReg;
   wire [8:0]   gameConfig_granularity;
   wire [31:0]  gameConfig_eepromOffset;
   wire [1:0]   gameConfig_sound_0_device;
+  wire [1:0]   gameConfigCpu_sound_0_device;
   wire [31:0]  gameConfig_sound_0_romOffset;
   wire [31:0]  gameConfig_sound_1_romOffset;
   wire [31:0]  gameConfig_sound_2_romOffset;
@@ -403,6 +411,28 @@ module Cave(
     .sprite_format        (gpu_io_spriteCtrl_format),
     .sprite_rom_offset    (gameConfig_sprite_romOffset),
     .sprite_zoom          (gameConfig_sprite_zoom)
+  );
+
+  CaveGameConfig gameConfigCpu (
+    .game_index           (gameIndexCpuReg),
+    .granularity          (),
+    .eeprom_offset        (),
+    .sound_0_device       (gameConfigCpu_sound_0_device),
+    .sound_0_rom_offset   (),
+    .sound_1_rom_offset   (),
+    .sound_2_rom_offset   (),
+    .layer_0_format       (),
+    .layer_0_rom_offset   (),
+    .layer_0_palette_bank (),
+    .layer_1_format       (),
+    .layer_1_rom_offset   (),
+    .layer_1_palette_bank (),
+    .layer_2_format       (),
+    .layer_2_rom_offset   (),
+    .layer_2_palette_bank (),
+    .sprite_format        (),
+    .sprite_rom_offset    (),
+    .sprite_zoom          ()
   );
 
   CaveBoardProfile boardProfile(
@@ -478,6 +508,15 @@ module Cave(
   wire         spriteProcessorStart =
     airGalletInvertedSpriteCall ? airGalletSpriteStart :
     videoVBlankFalling & spriteStartAllowed;
+  always @(posedge cpuClock) begin
+    gameIndexCpuToggleSync0 <= gameIndexCpuLoadToggle;
+    gameIndexCpuToggleSync1 <= gameIndexCpuToggleSync0;
+    if (gameIndexCpuToggleSync1 != gameIndexCpuToggleSeen) begin
+      gameIndexCpuReg <= gameIndexReg;
+      gameIndexCpuToggleSeen <= gameIndexCpuToggleSync1;
+    end
+  end
+
   always @(posedge clock) begin
     videoVBlankPipe0 <= _videoSys_io_video_vBlank;
     videoVBlankPipe1 <= videoVBlankPipe0;
@@ -515,6 +554,10 @@ module Cave(
       gameIndexReg <= options_gameIndex;
     else if (ioctlGameIndexWrite)
       gameIndexReg <= ioctl_dout[3:0];
+    if (reset)
+      gameIndexCpuLoadToggle <= 1'b0;
+    else if (optionGameIndexFallback | ioctlGameIndexWrite)
+      gameIndexCpuLoadToggle <= ~gameIndexCpuLoadToggle;
     ioctlDownloadReg <= ioctl_download;
     if (_memSys_io_prog_nvram_valid)
       memSys_io_prog_nvram_ioctl_din_r <= _memSys_io_prog_nvram_dout;
@@ -730,7 +773,7 @@ module Cave(
     .reset                                  (cpuDomainReset),
     .io_videoClock                          (videoClock),
     .io_spriteClock                         (clock),
-    .io_gameIndex                           (gameIndexReg),
+    .io_gameIndex                           (gameIndexCpuReg),
     .io_options_service                     (options_service),
     .io_player_0_up                         (player_0_up),
     .io_player_0_down                       (player_0_down),
@@ -910,8 +953,8 @@ module Cave(
     .io_ctrl_reply                (_main_io_soundCtrl_reply),
     .io_ctrl_reply_empty          (_main_io_soundCtrl_reply_empty),
     .io_ctrl_irq                  (_main_io_soundCtrl_irq),
-    .io_gameIndex                 (gameIndexReg),
-    .io_gameConfig_sound_0_device (gameConfig_sound_0_device),
+    .io_gameIndex                 (gameIndexCpuReg),
+    .io_gameConfig_sound_0_device (gameConfigCpu_sound_0_device),
     .io_audioTrim_fm              (options_audioTrim_fm),
     .io_audioTrim_bgm             (options_audioTrim_bgm),
     .io_audioTrim_sfx             (options_audioTrim_sfx),

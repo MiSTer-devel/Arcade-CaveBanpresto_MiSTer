@@ -121,6 +121,19 @@ module MemSys(
   reg decryptDmaStartedReg;
   reg decryptDmaDoneReg;
 
+  reg [31:0] gameConfigEepromOffsetReg;
+  reg [31:0] gameConfigSound0RomOffsetReg;
+  reg [31:0] gameConfigSound1RomOffsetReg;
+  reg [31:0] gameConfigSound2RomOffsetReg;
+  reg [31:0] gameConfigLayer0RomOffsetReg;
+  reg [31:0] gameConfigLayer1RomOffsetReg;
+  reg [31:0] gameConfigLayer2RomOffsetReg;
+  reg [31:0] gameConfigSpriteRomOffsetReg;
+  reg        gameIsMazingerReg;
+  reg        gameIsAirGalletReg;
+  reg        gameIsSailorMoonReg;
+  reg        gameIsMetmqstrReg;
+
   wire        ddrDownloadBufferOutWr;
   wire [31:0] ddrDownloadBufferOutAddr;
   wire [63:0] ddrDownloadBufferOutDin;
@@ -229,41 +242,41 @@ module MemSys(
   wire        layerRomCache2InWaitN;
   wire        layerRomCache2InValid;
 
-  wire        gameIsMazinger;
-  wire        gameIsAirGallet;
-  wire        gameIsSailorMoon;
-  wire        gameIsMetmqstr;
+  wire        gameIsMazingerConfig;
+  wire        gameIsAirGalletConfig;
+  wire        gameIsSailorMoonConfig;
+  wire        gameIsMetmqstrConfig;
   wire        copyDmaStart = io_prog_done & ~copyDmaStartedReg;
-  wire        gameUsesSpriteDecrypt = gameIsMazinger | gameIsSailorMoon;
+  wire        gameUsesSpriteDecrypt = gameIsMazingerReg | gameIsSailorMoonReg;
   wire        decryptDmaStart =
     copyDmaDoneReg & gameUsesSpriteDecrypt & ~decryptDmaStartedReg;
   wire [31:0] ddrDownloadAddr = ddrDownloadBufferOutAddr + IOCTL_DOWNLOAD_BASE_ADDR;
   wire [31:0] ddrCopyDmaAddr = copyDmaInAddr + IOCTL_DOWNLOAD_BASE_ADDR;
   wire [31:0] spriteRomReadOffset =
-    gameUsesSpriteDecrypt ? DECRYPTED_SPRITE_ROM_OFFSET : io_gameConfig_sprite_romOffset;
+    gameUsesSpriteDecrypt ? DECRYPTED_SPRITE_ROM_OFFSET : gameConfigSpriteRomOffsetReg;
   wire [31:0] spriteTileRomLocalAddr =
     gameUsesSpriteDecrypt ? {10'h000, io_spriteTileRom_addr[21:0]} :
-    gameIsAirGallet    ? {10'h000, io_spriteTileRom_addr[21:0]} :
-    gameIsMetmqstr       ? {9'h000,  io_spriteTileRom_addr[22:0]} :
+    gameIsAirGalletReg ? {10'h000, io_spriteTileRom_addr[21:0]} :
+    gameIsMetmqstrReg  ? {9'h000,  io_spriteTileRom_addr[22:0]} :
                            io_spriteTileRom_addr;
   wire [31:0] ddrSpriteTileRomAddr =
     spriteTileRomLocalAddr + (spriteRomReadOffset + IOCTL_DOWNLOAD_BASE_ADDR);
 
   wire [24:0] eepromSdramAddr =
-    eepromCacheOutAddr + io_gameConfig_eepromOffset[24:0];
+    eepromCacheOutAddr + gameConfigEepromOffsetReg[24:0];
   wire [24:0] soundRom0SdramAddr =
-    soundRomCache0OutAddr + io_gameConfig_sound_0_romOffset[24:0];
+    soundRomCache0OutAddr + gameConfigSound0RomOffsetReg[24:0];
   wire [24:0] soundRom1CacheInAddr =
-    io_soundRom_1_addr + io_gameConfig_sound_1_romOffset[24:0];
+    io_soundRom_1_addr + gameConfigSound1RomOffsetReg[24:0];
   wire [24:0] soundRom2CacheInAddr =
-    io_soundRom_2_addr + io_gameConfig_sound_2_romOffset[24:0];
+    io_soundRom_2_addr + gameConfigSound2RomOffsetReg[24:0];
   wire [24:0] soundRom1SdramAddr = soundRomCache1OutAddr;
   wire [24:0] layerRom0SdramAddr =
-    layerRomCache0OutAddr + io_gameConfig_layer_0_romOffset[24:0];
+    layerRomCache0OutAddr + gameConfigLayer0RomOffsetReg[24:0];
   wire [24:0] layerRom1SdramAddr =
-    layerRomCache1OutAddr + io_gameConfig_layer_1_romOffset[24:0];
+    layerRomCache1OutAddr + gameConfigLayer1RomOffsetReg[24:0];
   wire [24:0] layerRom2SdramAddr =
-    layerRomCache2OutAddr + io_gameConfig_layer_2_romOffset[24:0];
+    layerRomCache2OutAddr + gameConfigLayer2RomOffsetReg[24:0];
 
   CaveBoardProfile boardProfile(
     .game_index                  (io_gameIndex),
@@ -276,10 +289,10 @@ module MemSys(
     .game_is_guwange             (),
     .game_is_gaia                (),
     .game_is_hotdogstorm         (),
-    .game_is_mazinger            (gameIsMazinger),
-    .game_is_airgallet           (gameIsAirGallet),
-    .game_is_sailormoon          (gameIsSailorMoon),
-    .game_is_metmqstr            (gameIsMetmqstr),
+    .game_is_mazinger            (gameIsMazingerConfig),
+    .game_is_airgallet           (gameIsAirGalletConfig),
+    .game_is_sailormoon          (gameIsSailorMoonConfig),
+    .game_is_metmqstr            (gameIsMetmqstrConfig),
     .board_uses_z80_sound        (),
     .board_is_vertical_clockwise (),
     .sound_is_ymz280b            (),
@@ -290,6 +303,18 @@ module MemSys(
   always @(posedge clock) begin
     copyDmaBusyReg <= copyDmaBusy;
     decryptDmaBusyReg <= decryptDmaBusy;
+    gameConfigEepromOffsetReg <= io_gameConfig_eepromOffset;
+    gameConfigSound0RomOffsetReg <= io_gameConfig_sound_0_romOffset;
+    gameConfigSound1RomOffsetReg <= io_gameConfig_sound_1_romOffset;
+    gameConfigSound2RomOffsetReg <= io_gameConfig_sound_2_romOffset;
+    gameConfigLayer0RomOffsetReg <= io_gameConfig_layer_0_romOffset;
+    gameConfigLayer1RomOffsetReg <= io_gameConfig_layer_1_romOffset;
+    gameConfigLayer2RomOffsetReg <= io_gameConfig_layer_2_romOffset;
+    gameConfigSpriteRomOffsetReg <= io_gameConfig_sprite_romOffset;
+    gameIsMazingerReg <= gameIsMazingerConfig;
+    gameIsAirGalletReg <= gameIsAirGalletConfig;
+    gameIsSailorMoonReg <= gameIsSailorMoonConfig;
+    gameIsMetmqstrReg <= gameIsMetmqstrConfig;
     if (reset) begin
       readyEnableReg <= 1'b0;
       copyDmaBusyReg <= 1'b0;
@@ -298,6 +323,18 @@ module MemSys(
       decryptDmaBusyReg <= 1'b0;
       decryptDmaStartedReg <= 1'b0;
       decryptDmaDoneReg <= 1'b0;
+      gameConfigEepromOffsetReg <= 32'd0;
+      gameConfigSound0RomOffsetReg <= 32'd0;
+      gameConfigSound1RomOffsetReg <= 32'd0;
+      gameConfigSound2RomOffsetReg <= 32'd0;
+      gameConfigLayer0RomOffsetReg <= 32'd0;
+      gameConfigLayer1RomOffsetReg <= 32'd0;
+      gameConfigLayer2RomOffsetReg <= 32'd0;
+      gameConfigSpriteRomOffsetReg <= 32'd0;
+      gameIsMazingerReg <= 1'b0;
+      gameIsAirGalletReg <= 1'b0;
+      gameIsSailorMoonReg <= 1'b0;
+      gameIsMetmqstrReg <= 1'b0;
     end
     else begin
       if (copyDmaStart)
@@ -360,9 +397,9 @@ module MemSys(
   MazingerSpriteDecryptDMA mazingerSpriteDecryptDma (
     .clock                (clock),
     .reset                (reset),
-    .io_start             (decryptDmaStart & gameIsMazinger),
+    .io_start             (decryptDmaStart & gameIsMazingerReg),
     .io_busy              (mazingerDecryptDmaBusy),
-    .io_src_base          (io_gameConfig_sprite_romOffset + IOCTL_DOWNLOAD_BASE_ADDR),
+    .io_src_base          (gameConfigSpriteRomOffsetReg + IOCTL_DOWNLOAD_BASE_ADDR),
     .io_dst_base          (DECRYPTED_SPRITE_ROM_OFFSET + IOCTL_DOWNLOAD_BASE_ADDR),
     .io_mem_rd            (mazingerDecryptDmaRd),
     .io_mem_wr            (mazingerDecryptDmaWr),
@@ -379,9 +416,9 @@ module MemSys(
   SailorMoonSpriteDecryptDMA sailorMoonSpriteDecryptDma (
     .clock                (clock),
     .reset                (reset),
-    .io_start             (decryptDmaStart & gameIsSailorMoon),
+    .io_start             (decryptDmaStart & gameIsSailorMoonReg),
     .io_busy              (sailorMoonDecryptDmaBusy),
-    .io_src_base          (io_gameConfig_sprite_romOffset + IOCTL_DOWNLOAD_BASE_ADDR),
+    .io_src_base          (gameConfigSpriteRomOffsetReg + IOCTL_DOWNLOAD_BASE_ADDR),
     .io_dst_base          (DECRYPTED_SPRITE_ROM_OFFSET + IOCTL_DOWNLOAD_BASE_ADDR),
     .io_mem_rd            (sailorMoonDecryptDmaRd),
     .io_mem_wr            (sailorMoonDecryptDmaWr),
@@ -396,19 +433,19 @@ module MemSys(
   );
 
   assign decryptDmaBusy =
-    gameIsSailorMoon ? sailorMoonDecryptDmaBusy : mazingerDecryptDmaBusy;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaBusy : mazingerDecryptDmaBusy;
   assign decryptDmaRd =
-    gameIsSailorMoon ? sailorMoonDecryptDmaRd : mazingerDecryptDmaRd;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaRd : mazingerDecryptDmaRd;
   assign decryptDmaWr =
-    gameIsSailorMoon ? sailorMoonDecryptDmaWr : mazingerDecryptDmaWr;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaWr : mazingerDecryptDmaWr;
   assign decryptDmaAddr =
-    gameIsSailorMoon ? sailorMoonDecryptDmaAddr : mazingerDecryptDmaAddr;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaAddr : mazingerDecryptDmaAddr;
   assign decryptDmaMask =
-    gameIsSailorMoon ? sailorMoonDecryptDmaMask : mazingerDecryptDmaMask;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaMask : mazingerDecryptDmaMask;
   assign decryptDmaDin =
-    gameIsSailorMoon ? sailorMoonDecryptDmaDin : mazingerDecryptDmaDin;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaDin : mazingerDecryptDmaDin;
   assign decryptDmaBurstLength =
-    gameIsSailorMoon ? sailorMoonDecryptDmaBurstLength : mazingerDecryptDmaBurstLength;
+    gameIsSailorMoonReg ? sailorMoonDecryptDmaBurstLength : mazingerDecryptDmaBurstLength;
 
   CaveReadCache #(
     .IN_ADDR_WIDTH  (22),
@@ -585,8 +622,8 @@ module MemSys(
   AirGalletLayer2TileRomAdapter airGalletLayer2TileRomAdapter (
     .clock           (clock),
     .reset           (reset),
-    .game_active     (gameIsAirGallet | gameIsSailorMoon),
-    .sailormoon_mode (gameIsSailorMoon),
+    .game_active     (gameIsAirGalletReg | gameIsSailorMoonReg),
+    .sailormoon_mode (gameIsSailorMoonReg),
     .io_in_rd        (io_layerTileRom_2_rd),
     .io_in_addr      (io_layerTileRom_2_addr),
     .io_in_dout      (io_layerTileRom_2_dout),
