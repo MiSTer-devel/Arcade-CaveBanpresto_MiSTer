@@ -105,6 +105,26 @@ module VideoSys(
   reg       compatibilityChangeModeReg;
   reg       wideChangeModeReg;
 
+  // Some native 57 Hz MRA porch values do not fit inside the shorter 60 Hz
+  // compatibility totals. Clamp only the compatibility path so native timing
+  // remains exact while avoiding an all-blank active display after a toggle.
+  wire [9:0] compatibilityFrontPorchXBudget =
+    ({1'b0, videoRegsSizeX} + {1'b0, videoRegsRetraceX}) >= 10'h1BD
+      ? 10'd0
+      : 10'h1BD - {1'b0, videoRegsSizeX} - {1'b0, videoRegsRetraceX};
+  wire [9:0] compatibilityFrontPorchYBudget =
+    ({1'b0, videoRegsSizeY} + {1'b0, videoRegsRetraceY}) >= 10'h106
+      ? 10'd0
+      : 10'h106 - {1'b0, videoRegsSizeY} - {1'b0, videoRegsRetraceY};
+  wire [8:0] compatibilityFrontPorchX =
+    {1'b0, videoRegsFrontPorchX} > compatibilityFrontPorchXBudget
+      ? compatibilityFrontPorchXBudget[8:0]
+      : videoRegsFrontPorchX;
+  wire [8:0] compatibilityFrontPorchY =
+    {1'b0, videoRegsFrontPorchY} > compatibilityFrontPorchYBudget
+      ? compatibilityFrontPorchYBudget[8:0]
+      : videoRegsFrontPorchY;
+
   always @(posedge io_videoClock) begin
     if (io_videoReset) begin
       originalOffsetX <= 4'd0;
@@ -242,8 +262,8 @@ module VideoSys(
     .reset                   (io_videoReset),
     .io_display_x            (videoRegsSizeX),
     .io_display_y            (videoRegsSizeY),
-    .io_frontPorch_x         (videoRegsFrontPorchX),
-    .io_frontPorch_y         (videoRegsFrontPorchY),
+    .io_frontPorch_x         (compatibilityFrontPorchX),
+    .io_frontPorch_y         (compatibilityFrontPorchY),
     .io_retrace_x            (videoRegsRetraceX),
     .io_retrace_y            (videoRegsRetraceY),
     .io_offset_x             (compatibilityOffsetX),
@@ -292,8 +312,8 @@ module VideoSys(
     .reset                   (io_videoReset),
     .io_display_x            (videoRegsSizeX),
     .io_display_y            (videoRegsSizeY),
-    .io_frontPorch_x         (videoRegsFrontPorchX),
-    .io_frontPorch_y         (videoRegsFrontPorchY),
+    .io_frontPorch_x         (compatibilityFrontPorchX),
+    .io_frontPorch_y         (compatibilityFrontPorchY),
     .io_retrace_x            (videoRegsRetraceX),
     .io_retrace_y            (videoRegsRetraceY),
     .io_offset_x             (wideOffsetX),

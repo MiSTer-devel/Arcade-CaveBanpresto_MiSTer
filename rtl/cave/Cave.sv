@@ -485,10 +485,7 @@ module Cave(
   wire         optionGameIndexFallback =
     ~ioctl_download & ioctlDownloadReg & ~gameIndexReg_latched;
   wire         effectiveRotate = options_rotate;
-  // Hotdog Storm's rotated framebuffer output freezes in the 60 Hz compatibility
-  // timing path, so keep that board on its native 57 Hz timing for release.
-  wire         effectiveCompatibilityTiming =
-    options_compatibility & ~gameIsHotdogStorm;
+  wire         effectiveCompatibilityTiming = options_compatibility;
   wire         videoVBlankRising = videoVBlankPipe1 & ~videoVBlankPipe2;
   wire         videoVBlankFalling = ~videoVBlankPipe1 & videoVBlankPipe2;
   // Air Gallet's sprite call is inverted: b80008 arms drawing, vblank swaps pages.
