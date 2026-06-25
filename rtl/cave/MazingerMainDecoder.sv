@@ -19,6 +19,7 @@ module MazingerMainDecoder(
   output        irq_select,
   output        sprite_regs_select,
   output        sprite_swap_write,
+  output        watchdog_write,
   output        sound_select,
   output        sound_read,
   output        sound_write,
@@ -81,6 +82,8 @@ module MazingerMainDecoder(
   assign irq_select = cpu_byte_addr[23:3] == 21'h60000;
   assign sprite_regs_select = cpu_byte_addr[23:4] == 20'h30000;
   assign sprite_swap_write = (cpu_addr == 23'h180004) & write_strobe;
+  assign watchdog_write =
+    (cpu_byte_addr >= 24'h300068) & (cpu_byte_addr < 24'h30006a) & write_strobe;
   assign sound_select = cpu_addr == 23'h180037;
   assign sound_read = sound_select & read_strobe;
   assign sound_write = sound_select & write_strobe;

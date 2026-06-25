@@ -98,6 +98,7 @@ module MazingerMainMap(
 );
   wire [15:0] irqCause =
     {13'h0, ~((irq_word_offset == 2'h0) & agallet_irq), ~unknown_irq, ~video_irq};
+  wire watchdog_write;
 
   MazingerMainDecoder decoder(
     .game_active          (game_active),
@@ -117,6 +118,7 @@ module MazingerMainMap(
     .irq_select           (irq_select),
     .sprite_regs_select   (sprite_regs_select),
     .sprite_swap_write    (sprite_swap_write),
+    .watchdog_write       (watchdog_write),
     .sound_select         (sound_select),
     .sound_read           (sound_read),
     .sound_write          (sound_write),
@@ -182,6 +184,7 @@ module MazingerMainMap(
     .boot_ram_word          (main_ram_addr[0]),
     .boot_ram_mask          (main_ram_mask),
     .boot_ram_din           (cpu_dout),
+    .watchdog_write         (watchdog_write),
     .cpu_reset              (cpu_reset),
     .boot_ram_dout          (boot_ram_dout),
     .watchdog_armed         (boot_watchdog_armed),
