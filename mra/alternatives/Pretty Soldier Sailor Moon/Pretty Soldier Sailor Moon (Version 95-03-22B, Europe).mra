@@ -1,7 +1,7 @@
 <misterromdescription>
   <name>Pretty Soldier Sailor Moon (Version 95/03/22B, Europe)</name>
-  <mameversion>0275</mameversion>
-  <setname>sailormn</setname>
+  <mameversion>0289</mameversion>
+  <setname>sailormne</setname>
   <year>1995</year>
   <manufacturer>Gazelle (Banpresto license)</manufacturer>
   <category>Beat 'em up</category>
@@ -12,7 +12,7 @@
   <rbf>CaveBanpresto</rbf>
 
   <!-- ROM data -->
-  <rom index="0" zip="sailormn.zip" md5="none" address="0x30000000">
+  <rom index="0" zip="sailormne.zip|sailormn.zip" md5="none" address="0x30000000">
     <!-- prog ROMs -->
     <interleave output="16">
       <part name="bpsm945a.u45" crc="898c9515" map="12" />
