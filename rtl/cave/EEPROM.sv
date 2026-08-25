@@ -1,9 +1,18 @@
 // This file is a Codex-assisted rewrite based on the original work of
 // Josh Bassett (nullobject).
 
-module EEPROM(
+module EEPROM #(
+  // Keep legacy instantiations transparent until their owner-22 control
+  // wiring is added explicitly.
+  parameter SAVE_STATE_ENABLE = 1'b0
+) (
   input         clock,
   input         reset,
+  input         io_ss_hold,
+  input         io_ss_load,
+  input  [47:0] io_ss_state_in,
+  output [47:0] io_ss_state_out,
+  output        io_ss_idle,
   output        io_mem_rd,
   output        io_mem_wr,
   output [6:0]  io_mem_addr,
@@ -46,6 +55,12 @@ module EEPROM(
 
   wire sckRising = io_serial_sck & ~sckPrev;
   wire commandDone = counterReg[0];
+  wire ssHold = SAVE_STATE_ENABLE ? io_ss_hold : 1'b0;
+  wire ssLoad = SAVE_STATE_ENABLE ? io_ss_load : 1'b0;
+  wire ssDrainActive =
+    stateReg == STATE_READ ||
+    stateReg == STATE_READ_WAIT ||
+    stateReg == STATE_WRITE;
 
   wire readCommand = opcodeReg == 2'd2;
   wire writeCommand = opcodeReg == 2'd1 && writeEnableReg;
@@ -171,9 +186,16 @@ module EEPROM(
             stateNext = STATE_IDLE;
         end
       end
+
+      default: begin
+        stateNext = STATE_IDLE;
+      end
     endcase
 
-    if (!io_serial_cs)
+    // A save-state hold may arrive after a memory request has been accepted.
+    // Preserve normal chip-select abort behavior otherwise, but retain the
+    // transient state until the read response or write sequence is drained.
+    if (!io_serial_cs && !(ssHold && ssDrainActive))
       stateNext = STATE_IDLE;
   end
 
@@ -189,7 +211,18 @@ module EEPROM(
       writeEnableReg <= 1'b0;
       sckPrev <= 1'b0;
     end
-    else begin
+    else if (ssLoad && ssHold && !ssDrainActive) begin
+      stateReg <= io_ss_state_in[47:45];
+      counterReg <= io_ss_state_in[44:28];
+      addrReg <= io_ss_state_in[27:22];
+      dataReg <= io_ss_state_in[21:6];
+      opcodeReg <= io_ss_state_in[5:4];
+      serialReg <= io_ss_state_in[3];
+      writeAllReg <= io_ss_state_in[2];
+      writeEnableReg <= io_ss_state_in[1];
+      sckPrev <= io_ss_state_in[0];
+    end
+    else if (!ssHold || ssDrainActive) begin
       stateReg <= stateNext;
       counterReg <= counterNext;
       addrReg <= addrNext;
@@ -207,4 +240,17 @@ module EEPROM(
   assign io_mem_addr = {addrReg, 1'b0};
   assign io_mem_din = dataReg;
   assign io_serial_sdo = serialReg;
+  assign io_ss_state_out = {
+    stateReg,
+    counterReg,
+    addrReg,
+    dataReg,
+    opcodeReg,
+    serialReg,
+    writeAllReg,
+    writeEnableReg,
+    sckPrev
+  };
+  assign io_ss_idle =
+    SAVE_STATE_ENABLE ? (ssHold && !ssDrainActive) : 1'b1;
 endmodule

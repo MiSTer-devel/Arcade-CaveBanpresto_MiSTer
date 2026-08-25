@@ -29,11 +29,24 @@ module VideoSys(
   output [8:0]  io_video_regs_frontPorch_y,
   output [8:0]  io_video_regs_retrace_x,
   output [8:0]  io_video_regs_retrace_y,
-  output        io_video_changeMode
+  output        io_video_changeMode,
+  input         io_ss_hold,
+  input         io_ss_restore_load,
+  input  [127:0] io_ss_restore_state,
+  output [127:0] io_ss_state,
+  output        io_ss_blocked_normal_write,
+  output        io_ss_restore_applied
 );
   wire [2:0] videoRegAddr = io_prog_video_addr[3:1];
   wire [1:0] videoRegMask = 2'b11;
   wire [15:0] videoRegDin = {io_prog_video_din[7:0], io_prog_video_din[15:8]};
+  // Named instantiations that have not yet hooked up save state leave these
+  // inputs at Z.  Treat only a definite one as active so legacy operation is
+  // unchanged until Cave integrates the restore path.
+  wire ssHold = io_ss_hold === 1'b1;
+  wire ssRestoreLoad = io_ss_restore_load === 1'b1;
+  wire normalProgDone =
+    (io_prog_done === 1'b1) && !ssHold && !ssRestoreLoad;
 
   wire [15:0] videoReg0;
   wire [15:0] videoReg1;
@@ -200,32 +213,58 @@ module VideoSys(
       videoRegsFrontPorchY <= 9'h00C;
       videoRegsRetraceX <= 9'h01C;
       videoRegsRetraceY <= 9'h003;
+      compatibilityChangeModeReg <= io_options_compatibility;
+      wideChangeModeReg <= io_options_wideTiming;
     end
-    else if (io_prog_done) begin
-      videoRegsSizeX <= videoReg0[8:0];
-      videoRegsSizeY <= videoReg1[8:0];
-      videoRegsFrontPorchX <= videoReg2[8:0];
-      videoRegsFrontPorchY <= videoReg3[8:0];
-      videoRegsRetraceX <= videoReg4[8:0] + 9'h008;
-      videoRegsRetraceY <= videoReg5[8:0] + 9'h001;
-    end
+    else begin
+      if (ssRestoreLoad) begin
+        // Rebuild the derived timing registers from the incoming payload on
+        // the same edge as the physical cells.  Reading videoReg0..5 here
+        // would observe their stale pre-restore values.
+        videoRegsSizeX <= io_ss_restore_state[8:0];
+        videoRegsSizeY <= io_ss_restore_state[24:16];
+        videoRegsFrontPorchX <= io_ss_restore_state[40:32];
+        videoRegsFrontPorchY <= io_ss_restore_state[56:48];
+        videoRegsRetraceX <=
+          io_ss_restore_state[72:64] + 9'h008;
+        videoRegsRetraceY <=
+          io_ss_restore_state[88:80] + 9'h001;
+      end
+      else if (normalProgDone) begin
+        videoRegsSizeX <= videoReg0[8:0];
+        videoRegsSizeY <= videoReg1[8:0];
+        videoRegsFrontPorchX <= videoReg2[8:0];
+        videoRegsFrontPorchY <= videoReg3[8:0];
+        videoRegsRetraceX <= videoReg4[8:0] + 9'h008;
+        videoRegsRetraceY <= videoReg5[8:0] + 9'h001;
+      end
 
-    compatibilityChangeModeReg <= io_options_compatibility;
-    wideChangeModeReg <= io_options_wideTiming;
+      // Change-mode history is not serialized.  Canonicalizing it to the
+      // current menu options prevents a restore from inventing a mode change.
+      compatibilityChangeModeReg <= io_options_compatibility;
+      wideChangeModeReg <= io_options_wideTiming;
+    end
   end
 
-  CaveControlRegisterFile videoRegs (
-    .clock       (clock),
-    .io_mem_wr   (io_prog_video_wr),
-    .io_mem_addr (videoRegAddr),
-    .io_mem_mask (videoRegMask),
-    .io_mem_din  (videoRegDin),
-    .io_regs_0   (videoReg0),
-    .io_regs_1   (videoReg1),
-    .io_regs_2   (videoReg2),
-    .io_regs_3   (videoReg3),
-    .io_regs_4   (videoReg4),
-    .io_regs_5   (videoReg5)
+  CaveBanprestoVideoRegisterFile videoRegs (
+    .clock                     (clock),
+    .reset                     (reset),
+    .io_mem_wr                 (io_prog_video_wr),
+    .io_mem_addr               (videoRegAddr),
+    .io_mem_mask               (videoRegMask),
+    .io_mem_din                (videoRegDin),
+    .ss_hold_i                 (ssHold),
+    .ss_restore_load_i         (ssRestoreLoad),
+    .ss_state_i                (io_ss_restore_state),
+    .ss_state_o                (io_ss_state),
+    .ss_blocked_normal_write_o (io_ss_blocked_normal_write),
+    .ss_restore_applied_o      (io_ss_restore_applied),
+    .io_regs_0                 (videoReg0),
+    .io_regs_1                 (videoReg1),
+    .io_regs_2                 (videoReg2),
+    .io_regs_3                 (videoReg3),
+    .io_regs_4                 (videoReg4),
+    .io_regs_5                 (videoReg5)
   );
 
   CaveVideoTiming #(
@@ -343,7 +382,8 @@ module VideoSys(
   assign io_video_regs_frontPorch_y = videoRegsFrontPorchY;
   assign io_video_regs_retrace_x = videoRegsRetraceX;
   assign io_video_regs_retrace_y = videoRegsRetraceY;
-  assign io_video_changeMode =
-    io_prog_done | (io_options_compatibility ^ compatibilityChangeModeReg)
-      | (io_options_wideTiming ^ wideChangeModeReg);
+  assign io_video_changeMode = (ssHold || ssRestoreLoad) ? 1'b0 :
+    normalProgDone |
+      (io_options_compatibility ^ compatibilityChangeModeReg) |
+      (io_options_wideTiming ^ wideChangeModeReg);
 endmodule

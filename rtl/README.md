@@ -23,7 +23,11 @@ This directory is the active core implementation for Quartus.
   YM2151, two OKI lanes, banking, ROM arbitration, and mixer.
 - `cave/YM2203.sv`, `cave/YM2151.sv`, `cave/CaveOKIM6295.sv`, and
   `cave/CaveClockEnable.sv` are the active sound helpers for this split.
-- `cave/AudioMixer.sv` mixes the separated FM/BGM/SFX lanes.
+- `cave/savestate/CaveBanprestoAudioMixerSaveState.sv` is the active
+  physical PSG/FM-or-YM/OKI0/OKI1 mixer and serializes its registered output
+  and fast-profile latency state.
+- `cave/AudioMixer.sv` is an uninstantiated legacy reference and is
+  intentionally absent from `files.qip` and `cave/filelist.f`.
 - `cave/DDR.sv` is the burst bridge between the core shared burst-memory port
   and the MiSTer DDR service interface.
 - `cave/SDRAM.sv` is the SDRAM command sequencer for the 16-bit MiSTer-side
@@ -61,6 +65,6 @@ This directory is the active core implementation for Quartus.
   timing and register front-end.
 - `cave/CaveDebugOverlay.sv` is available behind `CAVE_ENABLE_DEBUG_OVERLAY`.
 - `arcadia/` contains VHDL memory helpers used by the Cave HDL.
-- `fx68k/`, `t80/`, `jt03/`, `jt51/`, and `jt6295/` are third-party CPU and
-  sound blocks required by the supported games.
+- `fx68k/`, `t80/`, `jt03/`, `jt6295/`, and `modules/ikaopm/` are third-party
+  CPU and sound blocks required by the supported games.
 - The PLL and reset wrappers live at the `rtl/` root.

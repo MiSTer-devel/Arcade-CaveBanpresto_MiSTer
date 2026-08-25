@@ -35,6 +35,10 @@ module MetmqstrMainMap(
   input         sound_reply_empty,
   input  [15:0] sprite_ram_data,
   input  [15:0] prog_rom_data,
+  input         ss_hold,
+  input         ss_load,
+  input  [95:0] ss_state_in,
+  output [95:0] ss_state_out,
   output [23:0] cpu_byte_addr,
   output [21:0] prog_rom_packed_addr,
   output        prog_rom_select,
@@ -211,19 +215,38 @@ module MetmqstrMainMap(
   reg [15:0] layer2Gap0Data;
   reg [15:0] layer2Gap1Data;
 
+  assign ss_state_out = {
+    layer0Gap0Data,
+    layer0Gap1Data,
+    layer1Gap0Data,
+    layer1Gap1Data,
+    layer2Gap0Data,
+    layer2Gap1Data
+  };
+
   always @(posedge clock) begin
-    if (layer0Gap0Select & write_strobe)
-      layer0Gap0Data <= cpu_dout;
-    if (layer0Gap1Select & write_strobe)
-      layer0Gap1Data <= cpu_dout;
-    if (layer1Gap0Select & write_strobe)
-      layer1Gap0Data <= cpu_dout;
-    if (layer1Gap1Select & write_strobe)
-      layer1Gap1Data <= cpu_dout;
-    if (layer2Gap0Select & write_strobe)
-      layer2Gap0Data <= cpu_dout;
-    if (layer2Gap1Select & write_strobe)
-      layer2Gap1Data <= cpu_dout;
+    if (ss_load) begin
+      layer0Gap0Data <= ss_state_in[95:80];
+      layer0Gap1Data <= ss_state_in[79:64];
+      layer1Gap0Data <= ss_state_in[63:48];
+      layer1Gap1Data <= ss_state_in[47:32];
+      layer2Gap0Data <= ss_state_in[31:16];
+      layer2Gap1Data <= ss_state_in[15:0];
+    end
+    else if (ss_hold !== 1'b1) begin
+      if (layer0Gap0Select & write_strobe)
+        layer0Gap0Data <= cpu_dout;
+      if (layer0Gap1Select & write_strobe)
+        layer0Gap1Data <= cpu_dout;
+      if (layer1Gap0Select & write_strobe)
+        layer1Gap0Data <= cpu_dout;
+      if (layer1Gap1Select & write_strobe)
+        layer1Gap1Data <= cpu_dout;
+      if (layer2Gap0Select & write_strobe)
+        layer2Gap0Data <= cpu_dout;
+      if (layer2Gap1Select & write_strobe)
+        layer2Gap1Data <= cpu_dout;
+    end
   end
 
   wire [15:0] irqData =

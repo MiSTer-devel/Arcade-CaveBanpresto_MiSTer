@@ -325,6 +325,7 @@ module CaveSpriteFramebufferDdrArbiter(
   input  [7:0]  io_in_2_mask,
   input  [63:0] io_in_2_din,
   output        io_in_2_wait_n,
+  output        io_in_2_burstDone,
   output        io_out_rd,
   output        io_out_wr,
   output [31:0] io_out_addr,
@@ -334,7 +335,8 @@ module CaveSpriteFramebufferDdrArbiter(
   input         io_out_wait_n,
   input         io_out_valid,
   output [7:0]  io_out_burstLength,
-  input         io_out_burstDone
+  input         io_out_burstDone,
+  output        io_idle
 );
 
   localparam [2:0] REQ_NONE = 3'b000;
@@ -380,6 +382,7 @@ module CaveSpriteFramebufferDdrArbiter(
   assign io_in_1_wait_n = (no_request_chosen | chosen[1]) & io_out_wait_n;
   assign io_in_1_burstDone = chosen[1] & io_out_burstDone;
   assign io_in_2_wait_n = (no_request_chosen | chosen[2]) & io_out_wait_n;
+  assign io_in_2_burstDone = chosen[2] & io_out_burstDone;
   assign io_out_rd = selected_read;
   assign io_out_wr = selected_write;
   assign io_out_addr =
@@ -394,4 +397,5 @@ module CaveSpriteFramebufferDdrArbiter(
     (chosen[0] ? 8'd16 : 8'd0) |
     (chosen[1] ? io_in_1_burstLength : 8'd0) |
     (chosen[2] ? 8'd1 : 8'd0);
+  assign io_idle = ~busy_reg & (next_request == REQ_NONE);
 endmodule

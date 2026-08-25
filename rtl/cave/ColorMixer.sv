@@ -33,6 +33,10 @@ module ColorMixer(
   output [14:0] io_paletteRam_addr,
   input  [15:0] io_paletteRam_dout,
   output [15:0] io_dout
+`ifdef CAVEBANPRESTO_MET_SPRITE_PAGE_HW_DIAGNOSTIC
+  ,
+  output        io_met_sprite_diag_spriteBeatsTiles
+`endif
 `ifdef CAVE_ENABLE_DEBUG_OVERLAY
   ,
   output [3:0]  io_debug_selectedPen,
@@ -176,6 +180,9 @@ module ColorMixer(
 
   assign io_paletteRam_addr = paletteRamAddr;
   assign io_dout = pixelReg;
+`ifdef CAVEBANPRESTO_MET_SPRITE_PAGE_HW_DIAGNOSTIC
+  assign io_met_sprite_diag_spriteBeatsTiles = spriteBeatsTiles;
+`endif
 `ifdef CAVE_ENABLE_DEBUG_OVERLAY
   assign io_debug_selectedPen = debugSelectedPenReg;
   assign io_debug_selectedPalette = debugSelectedPaletteReg;

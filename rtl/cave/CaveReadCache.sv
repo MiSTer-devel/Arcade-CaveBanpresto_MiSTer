@@ -69,9 +69,9 @@ module CaveReadCache #(
   wire                   state_write = state_reg == STATE_WRITE;
   wire                   start = io_enable & io_in_rd & state_idle;
   wire                   fill_word_valid = state_fill_wait & io_out_valid;
-  wire [1:0]             fill_word_index = request_offset + burst_counter;
+  wire [1:0]             fill_word_index = burst_counter;
   wire                   fill_word_done =
-    (IN_DATA_WIDTH == 64) ? (&burst_counter) : (burst_counter == 2'd0);
+    (IN_DATA_WIDTH == 64) ? (&burst_counter) : (burst_counter == request_offset);
 
   wire [ENTRY_WIDTH-1:0] way_a_data;
   wire [ENTRY_WIDTH-1:0] way_b_data;
@@ -108,6 +108,7 @@ module CaveReadCache #(
                 : {ENTRY_WIDTH{1'b0}};
   wire                   write_way_a = state_init | (state_write & ~way_reg);
   wire                   write_way_b = state_init | (state_write & way_reg);
+  wire [INDEX_WIDTH-1:0] write_index = state_init ? init_counter : request_index;
   wire [OUT_TAG_WIDTH-1:0] output_tag;
 
   function [IN_DATA_WIDTH-1:0] read_line_data;
@@ -201,6 +202,22 @@ module CaveReadCache #(
       state_reg <= STATE_INIT;
       init_counter <= {INDEX_WIDTH{1'b0}};
       burst_counter <= 2'd0;
+      offset_reg <= 3'd0;
+      request_rd <= 1'b0;
+      request_tag <= {TAG_WIDTH{1'b0}};
+      request_index <= {INDEX_WIDTH{1'b0}};
+      request_offset <= 2'd0;
+      dout_reg <= {IN_DATA_WIDTH{1'b0}};
+      valid_reg <= 1'b0;
+      lru_reg <= {DEPTH{1'b0}};
+      way_reg <= 1'b0;
+      entry_valid <= 1'b0;
+      entry_dirty <= 1'b0;
+      entry_tag <= {TAG_WIDTH{1'b0}};
+      entry_word_0 <= 16'd0;
+      entry_word_1 <= 16'd0;
+      entry_word_2 <= 16'd0;
+      entry_word_3 <= 16'd0;
     end
     else begin
       state_reg <= next_state;
@@ -208,51 +225,51 @@ module CaveReadCache #(
         init_counter <= init_counter + 1'b1;
       if (fill_word_valid)
         burst_counter <= burst_counter + 2'd1;
+
+      if (start) begin
+        offset_reg <= current_offset;
+        request_rd <= io_in_rd;
+        request_tag <= current_tag;
+        request_index <= current_index;
+        request_offset <= io_in_addr[2:1];
+      end
+
+      if (state_check & hit)
+        dout_reg <= hit_a ? read_line_data(way_a_line, offset_reg) : read_line_data(way_b_line, offset_reg);
+      else if (fill_word_valid)
+        dout_reg <= read_line_data(fill_line, offset_reg);
+
+      valid_reg <= (state_check & hit) | (fill_word_valid & request_rd & fill_word_done);
+
+      if (state_check) begin
+        lru_reg <= hit ? set_lru_bit(lru_reg, request_index, hit_a)
+                       : set_lru_bit(lru_reg, request_index, ~way_reg);
+        entry_valid <= selected_valid;
+        entry_dirty <= selected_dirty;
+        entry_tag <= selected_tag;
+        entry_word_0 <= selected_line[15:0];
+        entry_word_1 <= selected_line[31:16];
+        entry_word_2 <= selected_line[47:32];
+        entry_word_3 <= selected_line[63:48];
+      end
+      else if (fill_word_valid) begin
+        entry_valid <= 1'b1;
+        entry_tag <= request_tag;
+        if (fill_word_index == 2'd0)
+          entry_word_0 <= io_out_dout;
+        if (fill_word_index == 2'd1)
+          entry_word_1 <= io_out_dout;
+        if (fill_word_index == 2'd2)
+          entry_word_2 <= io_out_dout;
+        if (fill_word_index == 2'd3)
+          entry_word_3 <= io_out_dout;
+      end
+
+      if (state_check & hit)
+        way_reg <= ~hit_a;
+      else if (start)
+        way_reg <= lru_way;
     end
-
-    if (start) begin
-      offset_reg <= current_offset;
-      request_rd <= io_in_rd;
-      request_tag <= current_tag;
-      request_index <= current_index;
-      request_offset <= io_in_addr[2:1];
-    end
-
-    if (state_check & hit)
-      dout_reg <= hit_a ? read_line_data(way_a_line, offset_reg) : read_line_data(way_b_line, offset_reg);
-    else if (fill_word_valid)
-      dout_reg <= read_line_data(fill_line, offset_reg);
-
-    valid_reg <= (state_check & hit) | (fill_word_valid & request_rd & fill_word_done);
-
-    if (state_check) begin
-      lru_reg <= hit ? set_lru_bit(lru_reg, request_index, hit_a)
-                     : set_lru_bit(lru_reg, request_index, ~way_reg);
-      entry_valid <= selected_valid;
-      entry_dirty <= selected_dirty;
-      entry_tag <= selected_tag;
-      entry_word_0 <= selected_line[15:0];
-      entry_word_1 <= selected_line[31:16];
-      entry_word_2 <= selected_line[47:32];
-      entry_word_3 <= selected_line[63:48];
-    end
-    else if (fill_word_valid) begin
-      entry_valid <= 1'b1;
-      entry_tag <= request_tag;
-      if (fill_word_index == 2'd0)
-        entry_word_0 <= io_out_dout;
-      if (fill_word_index == 2'd1)
-        entry_word_1 <= io_out_dout;
-      if (fill_word_index == 2'd2)
-        entry_word_2 <= io_out_dout;
-      if (fill_word_index == 2'd3)
-        entry_word_3 <= io_out_dout;
-    end
-
-    if (state_check & hit)
-      way_reg <= ~hit_a;
-    else if (start)
-      way_reg <= lru_way;
   end
 
   generate
@@ -273,7 +290,7 @@ module CaveReadCache #(
     .read_en    (1'b1),
     .read_clk   (clock),
     .read_data  (way_a_data),
-    .write_addr (request_index),
+    .write_addr (write_index),
     .write_en   (write_way_a),
     .write_clk  (clock),
     .write_data (write_entry)
@@ -288,7 +305,7 @@ module CaveReadCache #(
     .read_en    (1'b1),
     .read_clk   (clock),
     .read_data  (way_b_data),
-    .write_addr (request_index),
+    .write_addr (write_index),
     .write_en   (write_way_b),
     .write_clk  (clock),
     .write_data (write_entry)
@@ -298,5 +315,5 @@ module CaveReadCache #(
   assign io_in_wait_n = io_enable & state_idle;
   assign io_in_valid = valid_reg;
   assign io_out_rd = state_reg == STATE_FILL;
-  assign io_out_addr = {output_tag, request_index, request_offset, 1'b0};
+  assign io_out_addr = {output_tag, request_index, 2'b00, 1'b0};
 endmodule

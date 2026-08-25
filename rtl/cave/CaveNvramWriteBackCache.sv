@@ -222,7 +222,16 @@ module CaveNvramWriteBackCache(
         burstCounter <= burstCounter + 2'b01;
     end
 
-    if (start) begin
+    if (reset) begin
+      offsetReg <= 2'b00;
+      requestReg_rd <= 1'b0;
+      requestReg_wr <= 1'b0;
+      requestReg_addr_tag <= 4'b0000;
+      requestReg_addr_index <= 1'b0;
+      requestReg_addr_offset <= 2'b00;
+      requestReg_din <= 16'h0000;
+    end
+    else if (start) begin
       offsetReg <= inAddrOffset;
       requestReg_rd <= io_in_rd;
       requestReg_wr <= io_in_wr;
@@ -232,26 +241,44 @@ module CaveNvramWriteBackCache(
       requestReg_din <= io_in_din;
     end
 
-    if (readHit)
-      doutReg <= hitA ? swap16(entry_word(wayAReadData, offsetReg)) : swap16(entry_word(wayBReadData, offsetReg));
-    else if (fillWordValid)
-      doutReg <= swap16(fillWordAtOffset);
+    if (reset) begin
+      doutReg <= 16'h0000;
+      validReg <= 1'b0;
+    end
+    else begin
+      if (readHit)
+        doutReg <= hitA ? swap16(entry_word(wayAReadData, offsetReg)) : swap16(entry_word(wayBReadData, offsetReg));
+      else if (fillWordValid)
+        doutReg <= swap16(fillWordAtOffset);
 
-    validReg <= readHit | (fillWordValid & requestReg_rd & (burstCounter == 2'b00));
+      validReg <= readHit | (fillWordValid & requestReg_rd & (burstCounter == 2'b00));
+    end
 
-    if (check) begin
+    if (reset)
+      lruReg <= 2'b00;
+    else if (check) begin
       if (hit)
         lruReg <= set_lru(lruReg, requestReg_addr_index, hitA);
       else
         lruReg <= set_lru(lruReg, requestReg_addr_index, ~wayReg);
     end
 
-    if (start)
+    if (reset)
+      wayReg <= 1'b0;
+    else if (start)
       wayReg <= lruReg[inAddrIndex];
     else if (check & hit)
       wayReg <= ~hitA;
 
-    if (merge) begin
+    if (reset) begin
+      cacheEntryReg_valid <= 1'b0;
+      cacheEntryReg_tag <= 4'b0000;
+      cacheEntryReg_line_words_0 <= 16'h0000;
+      cacheEntryReg_line_words_1 <= 16'h0000;
+      cacheEntryReg_line_words_2 <= 16'h0000;
+      cacheEntryReg_line_words_3 <= 16'h0000;
+    end
+    else if (merge) begin
       case (offsetReg)
         2'd0: cacheEntryReg_line_words_0 <= swap16(requestReg_din);
         2'd1: cacheEntryReg_line_words_1 <= swap16(requestReg_din);
@@ -282,7 +309,9 @@ module CaveNvramWriteBackCache(
       end
     end
 
-    if (merge)
+    if (reset)
+      cacheEntryReg_dirty <= 1'b0;
+    else if (merge)
       cacheEntryReg_dirty <= 1'b1;
     else if (check)
       cacheEntryReg_dirty <= selectedEntry[68];
@@ -302,6 +331,8 @@ module CaveNvramWriteBackCache(
 
   wire wayAWriteEnable = (stateReg == STATE_INIT) | (write & ~wayReg);
   wire wayBWriteEnable = (stateReg == STATE_INIT) | (write & wayReg);
+  wire cacheWriteIndex =
+    stateReg == STATE_INIT ? initCounter : requestReg_addr_index;
 
   CaveSyncReadMem #(
     .ADDR_WIDTH (1),
@@ -312,7 +343,7 @@ module CaveNvramWriteBackCache(
     .read_en    (1'b1),
     .read_clk   (clock),
     .read_data  (wayAReadData),
-    .write_addr (requestReg_addr_index),
+    .write_addr (cacheWriteIndex),
     .write_en   (wayAWriteEnable),
     .write_clk  (clock),
     .write_data (nextCacheEntry)
@@ -327,7 +358,7 @@ module CaveNvramWriteBackCache(
     .read_en    (1'b1),
     .read_clk   (clock),
     .read_data  (wayBReadData),
-    .write_addr (requestReg_addr_index),
+    .write_addr (cacheWriteIndex),
     .write_en   (wayBWriteEnable),
     .write_clk  (clock),
     .write_data (nextCacheEntry)

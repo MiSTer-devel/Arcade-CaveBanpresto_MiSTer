@@ -1,3 +1,29 @@
 .DS_Store
 .DS_Store
-scripts/timequest_worst_paths.tcl
+db/
+incremental_db/
+output_files/
+build_id.v
+c5_pin_model_dump.txt
+jtag.cdf
+*.qws
+*.qdf
+modelsim.ini
+transcript
+vsim.wlf
+sim/work_*/
+
+# Local research, test, and generated working trees. None of these are needed
+# by Quartus to build the core or by MiSTer to run it. Keep build/play sources,
+# RTL dependencies, configuration files, and MRAs tracked instead.
+/Cave.sv
+/scripts/*
+!/scripts/timequest_worst_paths.tcl
+/sim/
+/snap/
+/tools/
+/work/
+
+# Host-language caches can occur beside local helper scripts.
+__pycache__/
+*.py[cod]

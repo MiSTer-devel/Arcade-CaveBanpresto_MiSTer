@@ -25,7 +25,8 @@ module CaveVideoTiming #(
   output       io_timing_hBlank,
   output       io_timing_vBlank
 );
-  localparam [3:0] CE_DIV_LAST = CE_DIV - 1;
+  localparam [31:0] CE_DIV_LAST_WIDE = CE_DIV - 1;
+  localparam [3:0] CE_DIV_LAST = CE_DIV_LAST_WIDE[3:0];
 
   reg [3:0] clock_divider;
   reg [9:0] x;

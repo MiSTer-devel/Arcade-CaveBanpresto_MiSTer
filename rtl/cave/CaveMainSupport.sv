@@ -7,6 +7,10 @@ module CaveCpuBusStrobes(
   input  wire uds,
   input  wire lds,
   input  wire rw,
+  input  wire       ss_hold,
+  input  wire       ss_load,
+  input  wire [2:0] ss_state_in,
+  output wire [2:0] ss_state_out,
   output wire read_strobe,
   output wire write_strobe
 );
@@ -19,11 +23,52 @@ module CaveCpuBusStrobes(
   assign write_strobe =
     (as & uds & ~udsPrev & ~rw)
     | (as & lds & ~ldsPrev & ~rw);
+  assign ss_state_out = {asPrev, udsPrev, ldsPrev};
 
   always @(posedge clock) begin
-    asPrev <= as;
-    udsPrev <= uds;
-    ldsPrev <= lds;
+    if (ss_load) begin
+      asPrev <= ss_state_in[2];
+      udsPrev <= ss_state_in[1];
+      ldsPrev <= ss_state_in[0];
+    end
+    else if (ss_hold !== 1'b1) begin
+      asPrev <= as;
+      udsPrev <= uds;
+      ldsPrev <= lds;
+    end
+  end
+
+endmodule
+
+// Convert an asynchronous level pulse into exactly one pulse in the receiving
+// clock domain. The source pulse must remain asserted long enough to cross
+// the two synchronizer stages; Cave's 32 MHz CPU-domain sprite-swap pulse is
+// three 96 MHz system clocks wide.
+module CaveAsyncLevelToPulse(
+  input  wire clock,
+  input  wire reset,
+  input  wire level_in,
+  output wire pulse_out
+);
+
+  (* preserve, useioff = 0, altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+  reg level_meta_q;
+  (* preserve, useioff = 0, altera_attribute = {"-name SYNCHRONIZER_IDENTIFICATION FORCED_IF_ASYNCHRONOUS"} *)
+  reg level_sync_q;
+  reg level_previous_q;
+
+  assign pulse_out = level_sync_q & ~level_previous_q;
+
+  always @(posedge clock) begin
+    if (reset) begin
+      level_meta_q <= 1'b0;
+      level_sync_q <= 1'b0;
+      level_previous_q <= 1'b0;
+    end else begin
+      level_meta_q <= level_in;
+      level_sync_q <= level_meta_q;
+      level_previous_q <= level_sync_q;
+    end
   end
 
 endmodule
@@ -35,10 +80,16 @@ module CaveEepromSerialPins(
   input  wire       guwange_layout,
   input  wire       metmqstr_layout,
   input  wire [15:0] data,
+  input  wire       ss_hold,
+  input  wire       ss_load,
+  input  wire [2:0] ss_state_in,
+  output wire [2:0] ss_state_out,
   output reg        serial_cs,
   output reg        serial_sck,
   output reg        serial_sdi
 );
+
+  assign ss_state_out = {serial_cs, serial_sck, serial_sdi};
 
   always @(posedge clock) begin
     if (reset) begin
@@ -46,7 +97,12 @@ module CaveEepromSerialPins(
       serial_sck <= 1'b0;
       serial_sdi <= 1'b0;
     end
-    else if (write_enable) begin
+    else if (ss_load) begin
+      serial_cs <= ss_state_in[2];
+      serial_sck <= ss_state_in[1];
+      serial_sdi <= ss_state_in[0];
+    end
+    else if ((ss_hold !== 1'b1) && write_enable) begin
       if (metmqstr_layout) begin
         if (~data[8]) begin
           serial_cs <= data[9];
@@ -216,17 +272,29 @@ module CavePauseToggle(
   input  wire clock,
   input  wire reset,
   input  wire pause_pressed,
+  input  wire       ss_hold,
+  input  wire       ss_load,
+  input  wire [1:0] ss_state_in,
+  output wire [1:0] ss_state_out,
   output reg  pause_active
 );
 
   reg pausePressedPrev;
+  assign ss_state_out = {pausePressedPrev, pause_active};
 
   always @(posedge clock) begin
-    pausePressedPrev <= pause_pressed;
-    if (reset)
+    if (reset) begin
+      pausePressedPrev <= pause_pressed;
       pause_active <= 1'b0;
-    else
+    end
+    else if (ss_load) begin
+      pausePressedPrev <= ss_state_in[1];
+      pause_active <= ss_state_in[0];
+    end
+    else if (ss_hold !== 1'b1) begin
+      pausePressedPrev <= pause_pressed;
       pause_active <= (pause_pressed & ~pausePressedPrev) ^ pause_active;
+    end
   end
 
 endmodule
@@ -238,6 +306,10 @@ module CavePulseStretcher #(
   input  wire clock,
   input  wire reset,
   input  wire signal_in,
+  input  wire                     ss_hold,
+  input  wire                     ss_load,
+  input  wire [COUNTER_WIDTH+1:0] ss_state_in,
+  output wire [COUNTER_WIDTH+1:0] ss_state_out,
   output reg  pulse_active
 );
 
@@ -246,14 +318,21 @@ module CavePulseStretcher #(
 
   wire counterDone = counter == TERMINAL_COUNT;
   wire risingEdge = signal_in & ~signalPrev;
+  assign ss_state_out = {counter, signalPrev, pulse_active};
 
   always @(posedge clock) begin
-    signalPrev <= signal_in;
     if (reset) begin
+      signalPrev <= signal_in;
       counter <= {COUNTER_WIDTH{1'b0}};
       pulse_active <= 1'b0;
     end
-    else begin
+    else if (ss_load) begin
+      counter <= ss_state_in[COUNTER_WIDTH+1:2];
+      signalPrev <= ss_state_in[1];
+      pulse_active <= ss_state_in[0];
+    end
+    else if (ss_hold !== 1'b1) begin
+      signalPrev <= signal_in;
       if (pulse_active)
         counter <=
           counterDone
@@ -268,6 +347,10 @@ endmodule
 module CaveVBlankTracker(
   input  wire clock,
   input  wire vblank,
+  input  wire       ss_hold,
+  input  wire       ss_load,
+  input  wire [3:0] ss_state_in,
+  output wire [3:0] ss_state_out,
   output wire rising,
   output wire falling
 );
@@ -279,12 +362,26 @@ module CaveVBlankTracker(
 
   assign rising = vblankPipe1 & ~vblankRisingDelay;
   assign falling = ~vblankPipe1 & vblankPrevious;
+  assign ss_state_out = {
+    vblankPipe0,
+    vblankPipe1,
+    vblankRisingDelay,
+    vblankPrevious
+  };
 
   always @(posedge clock) begin
-    vblankPipe0 <= vblank;
-    vblankPipe1 <= vblankPipe0;
-    vblankRisingDelay <= vblankPipe1;
-    vblankPrevious <= vblankPipe1;
+    if (ss_load) begin
+      vblankPipe0 <= ss_state_in[3];
+      vblankPipe1 <= ss_state_in[2];
+      vblankRisingDelay <= ss_state_in[1];
+      vblankPrevious <= ss_state_in[0];
+    end
+    else if (ss_hold !== 1'b1) begin
+      vblankPipe0 <= vblank;
+      vblankPipe1 <= vblankPipe0;
+      vblankRisingDelay <= vblankPipe1;
+      vblankPrevious <= vblankPipe1;
+    end
   end
 
 endmodule

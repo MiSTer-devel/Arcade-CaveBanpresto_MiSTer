@@ -29,7 +29,8 @@ module SpriteProcessor(
   output [15:0]  io_frameBuffer_din,
   input          io_frameBuffer_wait_n,
   output         io_ctrl_frameReady,
-  output [63:0] io_debug
+  output         io_ss_idle,
+  output [63:0]  io_debug
 );
   localparam [2:0] STATE_IDLE    = 3'd0;
   localparam [2:0] STATE_LOAD    = 3'd1;
@@ -70,6 +71,7 @@ module SpriteProcessor(
   wire        blitterPixelDataReady;
   wire        blitterPixelDataValid;
   wire        blitterBusy;
+  wire        decoderIdle;
   wire [7:0]  blitterPixelData0;
   wire [7:0]  blitterPixelData1;
   wire [7:0]  blitterPixelData2;
@@ -336,6 +338,7 @@ module SpriteProcessor(
     .io_tileRom_bits      (fifoDeqBits),
     .io_pixelData_ready   (blitterPixelDataReady),
     .io_pixelData_valid   (blitterPixelDataValid),
+    .io_idle              (decoderIdle),
     .io_pixelData_bits_0  (blitterPixelData0),
     .io_pixelData_bits_1  (blitterPixelData1),
     .io_pixelData_bits_2  (blitterPixelData2),
@@ -360,6 +363,12 @@ module SpriteProcessor(
   assign io_ctrl_tileRom_addr = tileRomAddr[31:0];
   assign io_ctrl_tileRom_burstLength = {2'b00, tileRomBurstLength};
   assign io_ctrl_frameReady = frameReadyReg;
+  assign io_ss_idle =
+    (stateReg == STATE_IDLE) &
+    ~readPendingReg &
+    (fifoCount == 7'd0) &
+    ~blitterBusy &
+    decoderIdle;
 `ifdef CAVE_ENABLE_DEBUG_OVERLAY
   assign io_debug = {
     debugFrameBufferWaitLastFrame[7:0],

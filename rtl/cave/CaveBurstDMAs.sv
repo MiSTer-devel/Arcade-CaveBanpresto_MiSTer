@@ -87,6 +87,7 @@ module CaveFramebufferLineReadDma(
   input         reset,
   input         io_start,
   input  [2:0]  io_burstOffset,
+  output        io_busy,
   output        io_in_rd,
   output [31:0] io_in_addr,
   input  [63:0] io_in_dout,
@@ -96,6 +97,10 @@ module CaveFramebufferLineReadDma(
   output        io_out_wr,
   output [31:0] io_out_addr,
   output [63:0] io_out_din
+`ifdef CAVEBANPRESTO_MET_SPRITE_PAGE_HW_DIAGNOSTIC
+  ,
+  output        io_diag_start_accepted
+`endif
 );
 
   localparam [5:0] FIFO_LOW_WATERMARK = 6'd17;
@@ -159,6 +164,10 @@ module CaveFramebufferLineReadDma(
   assign io_in_addr = {22'h0, burst_index, 7'h0};
   assign io_out_wr = write;
   assign io_out_addr = {22'h0, word_index, 3'h0};
+  assign io_busy = read_enable | write_enable | read_pending | (|fifo_count);
+`ifdef CAVEBANPRESTO_MET_SPRITE_PAGE_HW_DIAGNOSTIC
+  assign io_diag_start_accepted = start;
+`endif
 endmodule
 
 module CaveFramebufferClearDma(
@@ -167,6 +176,7 @@ module CaveFramebufferClearDma(
   input         io_start,
   input  [7:0]  io_wordsPerLine,
   input  [8:0]  io_lines,
+  output        io_busy,
   output        io_out_wr,
   output [31:0] io_out_addr,
   output [63:0] io_out_din,
@@ -231,4 +241,5 @@ module CaveFramebufferClearDma(
   assign io_out_addr = {13'h0, lineReg, 10'h0} + {21'h0, wordReg, 3'h0};
   assign io_out_din = 64'h0;
   assign io_out_burstLength = burstLength;
+  assign io_busy = busyReg;
 endmodule

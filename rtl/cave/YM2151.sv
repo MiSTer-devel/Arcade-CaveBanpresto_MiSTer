@@ -13,7 +13,6 @@ module YM2151 #(
   output [15:0] io_audio_bits
 );
   wire ym_cen;
-  wire ym_cen_p1;
   wire ym_irq_n;
   wire ym_sample;
   wire signed [15:0] ym_left;
@@ -54,31 +53,34 @@ module YM2151 #(
     .enable (ym_cen)
   );
 
-  CaveClockEnable #(
-    .STEP (17'h1000)
-  ) half_clock_enable (
-    .clock  (clock),
-    .enable (ym_cen_p1)
-  );
-
-  jt51 ym2151 (
-    .rst    (reset),
-    .clk    (clock),
-    .cen    (ym_cen),
-    .cen_p1 (ym_cen_p1),
-    .cs_n   (1'b0),
-    .wr_n   (~chip_cpu_wr),
-    .a0     (chip_cpu_addr),
-    .din    (chip_cpu_din),
-    .dout   (io_cpu_dout),
-    .ct1    (),
-    .ct2    (),
-    .irq_n  (ym_irq_n),
-    .sample (ym_sample),
-    .left   (),
-    .right  (),
-    .xleft  (ym_left),
-    .xright (ym_right)
+  IKAOPM #(
+    .FULLY_SYNCHRONOUS (1),
+    .FAST_RESET        (1),
+    .USE_BRAM          (1)
+  ) ym2151 (
+    .i_EMUCLK       (clock),
+    .i_phiM_PCEN_n  (~ym_cen),
+    .i_IC_n         (~reset),
+    .o_phi1         (),
+    .i_CS_n         (1'b0),
+    .i_RD_n         (chip_cpu_wr),
+    .i_WR_n         (~chip_cpu_wr),
+    .i_A0           (chip_cpu_addr),
+    .i_D            (chip_cpu_din),
+    .o_D            (io_cpu_dout),
+    .o_D_OE         (),
+    .o_CT2          (),
+    .o_CT1          (),
+    .o_IRQ_n        (ym_irq_n),
+    .o_SH1          (),
+    .o_SH2          (),
+    .o_SO           (),
+    .o_EMU_R_SAMPLE (),
+    .o_EMU_R_EX     (),
+    .o_EMU_R        (ym_right),
+    .o_EMU_L_SAMPLE (ym_sample),
+    .o_EMU_L_EX     (),
+    .o_EMU_L        (ym_left)
   );
 
   assign io_irq = ~ym_irq_n;

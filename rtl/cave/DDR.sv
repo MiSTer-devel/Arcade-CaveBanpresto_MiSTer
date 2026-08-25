@@ -4,6 +4,7 @@
 module DDR(
   input         clock,
   input         reset,
+  input         io_block_new_requests,
   input         io_mem_rd,
   input         io_mem_wr,
   input  [31:0] io_mem_addr,
@@ -22,7 +23,8 @@ module DDR(
   input  [63:0] io_ddr_dout,
   input         io_ddr_wait_n,
   input         io_ddr_valid,
-  output [7:0]  io_ddr_burstLength
+  output [7:0]  io_ddr_burstLength,
+  output        io_idle
 );
   localparam [1:0] STATE_IDLE       = 2'd0;
   localparam [1:0] STATE_READ_WAIT  = 2'd1;
@@ -33,8 +35,9 @@ module DDR(
   reg [7:0] burstCounter;
 
   wire idle = stateReg == STATE_IDLE;
-  wire read = idle && io_mem_rd;
-  wire write = (idle || stateReg == STATE_WRITE_WAIT) && io_mem_wr;
+  wire read = idle && !io_block_new_requests && io_mem_rd;
+  wire write = ((idle && !io_block_new_requests) ||
+                stateReg == STATE_WRITE_WAIT) && io_mem_wr;
   wire acceptedRead = read && io_ddr_wait_n;
   wire acceptedWrite = write && io_ddr_wait_n;
 
@@ -65,7 +68,13 @@ module DDR(
   end
 
   assign io_mem_dout = io_ddr_dout;
-  assign io_mem_wait_n = io_ddr_wait_n;
+  // An idle command suppressed by the quiesce fence was not accepted.
+  // Back-pressure the upstream arbiter accordingly so it keeps the request
+  // pending rather than retiring work that never reached the DDR interface.
+  // Once a burst has been accepted, preserve the physical wait signal while
+  // the wrapper drains it to completion.
+  assign io_mem_wait_n =
+    (idle && io_block_new_requests) ? 1'b0 : io_ddr_wait_n;
   assign io_mem_valid = io_ddr_valid;
   assign io_mem_burstDone = burstCounterWrap;
 
@@ -75,4 +84,5 @@ module DDR(
   assign io_ddr_mask = io_mem_mask;
   assign io_ddr_din = io_mem_din;
   assign io_ddr_burstLength = burstLength;
+  assign io_idle = idle;
 endmodule
