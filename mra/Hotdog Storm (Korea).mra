@@ -40,8 +40,6 @@
     <part name="mp9.u55" crc="258d49ec" />
     <part name="mp8.u54" crc="bdb4d7b8" />
 
-    <!-- invert screen in EEPROM -->
-    <patch offset="0x00100000">f3 fc</patch>
   </rom>
 
   <!-- select game -->
@@ -49,8 +47,21 @@
     <part>00</part>
   </rom>
 
+  <!-- MAME hiscore range: 0x301100+0x54 -->
+  <rom index="5">
+    <part>00 30 11 00 00 54 00 14</part>
+  </rom>
+
+  <!-- Generated exact save-state identity; do not hand edit. -->
+  <rom index="4">
+    <part>
+      43 42 49 44 01 00 00 00 04 32 a8 6b aa 9f f3 d3
+      80 00 74 00 01 00 00 00 86 32 6b 3c 6c b7 cd e2
+    </part>
+  </rom>
+
   <!-- NVRAM -->
-  <nvram index="2" size="128" />
+  <nvram index="2" size="392" />
 
   <!-- video timing -->
   <rom index="3">

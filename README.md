@@ -15,6 +15,7 @@ This is a fork of Nullobject's [Cave68000 core](https://github.com/MiSTer-devel/
 ## Layout
 
 - `rtl/` contains the active HDL. `rtl/cave/` is the hand-maintained Cave core.
+- `rtl/modules/ikaopm/` contains the pinned IKAOPM YM2151 implementation.
 - `sys/` is the MiSTer framework drop-in.
 - `mra/` contains the active MRA files for the supported games.
 - `cfg/` and `nvram/` contain the MiSTer config/NVRAM defaults used by those

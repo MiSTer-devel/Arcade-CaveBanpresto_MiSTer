@@ -11,6 +11,10 @@ module MazingerBootWatchdog(
   input  [1:0]  boot_ram_mask,
   input  [15:0] boot_ram_din,
   input         watchdog_write,
+  input         ss_hold,
+  input         ss_load,
+  input  [43:0] ss_state_in,
+  output [43:0] ss_state_out,
   output        cpu_reset,
   output [15:0] boot_ram_dout,
   output        watchdog_armed,
@@ -41,6 +45,13 @@ module MazingerBootWatchdog(
   assign watchdog_reset_active = |watchdogResetCounter;
   assign cpu_reset = reset | watchdog_reset_active;
   assign boot_ram_dout = boot_ram_word ? bootRam1 : bootRam0;
+  assign ss_state_out = {
+    watchdogDelayCounter,
+    watchdogResetCounter,
+    bootWatchdogArmed,
+    bootRam0,
+    bootRam1
+  };
 
   always @(posedge clock) begin
     if (reset) begin
@@ -52,7 +63,19 @@ module MazingerBootWatchdog(
       bootRam0 <= 16'd0;
       bootRam1 <= 16'd0;
     end
-    else begin
+    else if (ss_load) begin
+      watchdogDelayCounter <= ss_state_in[43:38];
+      watchdogResetCounter <= ss_state_in[37:33];
+      // The upstream service-watchdog counter postdates the 44-bit save-state
+      // image. Refresh this derived timer on restore instead of retaining an
+      // unrelated live countdown that can reset the restored game at once.
+      watchdogPrescaler <= 8'd0;
+      watchdogCounter <= WATCHDOG_TIMEOUT_TICKS;
+      bootWatchdogArmed <= ss_state_in[32];
+      bootRam0 <= ss_state_in[31:16];
+      bootRam1 <= ss_state_in[15:0];
+    end
+    else if (ss_hold !== 1'b1) begin
       if (~game_active) begin
         watchdogDelayCounter <= 6'd0;
         watchdogResetCounter <= 5'd0;
@@ -109,6 +132,10 @@ module MetmqstrBootWatchdog(
   input  [14:0] sprite_ram_addr,
   input  [1:0]  sprite_ram_mask,
   input  [15:0] sprite_ram_din,
+  input         ss_hold,
+  input         ss_load,
+  input  [13:0] ss_state_in,
+  output [13:0] ss_state_out,
   output        cpu_reset,
   output        marker_seen,
   output        watchdog_delay_active,
@@ -137,6 +164,13 @@ module MetmqstrBootWatchdog(
   assign watchdog_delay_active = |watchdogDelayCounter;
   assign watchdog_reset_active = |watchdogResetCounter;
   assign cpu_reset = reset | watchdog_reset_active;
+  assign ss_state_out = {
+    watchdogDelayCounter,
+    watchdogResetCounter,
+    marker0Seen,
+    marker1Seen,
+    bootWatchdogArmed
+  };
 
   always @(posedge clock) begin
     if (reset) begin
@@ -146,7 +180,14 @@ module MetmqstrBootWatchdog(
       marker1Seen <= 1'b0;
       bootWatchdogArmed <= 1'b1;
     end
-    else begin
+    else if (ss_load) begin
+      watchdogDelayCounter <= ss_state_in[13:8];
+      watchdogResetCounter <= ss_state_in[7:3];
+      marker0Seen <= ss_state_in[2];
+      marker1Seen <= ss_state_in[1];
+      bootWatchdogArmed <= ss_state_in[0];
+    end
+    else if (ss_hold !== 1'b1) begin
       if (~game_active) begin
         watchdogDelayCounter <= 6'd0;
         watchdogResetCounter <= 5'd0;

@@ -6,8 +6,9 @@ set_global_assignment -name QIP_FILE rtl/pll_video.qip
 set_global_assignment -name QIP_FILE rtl/arcadia/arcadia.qip
 set_global_assignment -name QIP_FILE rtl/fx68k/fx68k.qip
 set_global_assignment -name QIP_FILE rtl/jt03/jt03.qip
-set_global_assignment -name QIP_FILE rtl/jt51/jt51.qip
+set_global_assignment -name QIP_FILE rtl/modules/ikaopm/src/IKAOPM.qip
 set_global_assignment -name QIP_FILE rtl/jt6295/jt6295.qip
+set_global_assignment -name SEARCH_PATH rtl/jt6295
 set_global_assignment -name QIP_FILE rtl/t80/t80.qip
 set_global_assignment -name QIP_FILE sys/pll_audio.qip
 set_global_assignment -name QIP_FILE sys/pll_cfg.qip
@@ -18,10 +19,61 @@ set_global_assignment -name SDC_FILE Arcade-CaveBanpresto.sdc
 set_global_assignment -name VERILOG_MACRO "CAVE_68K_BANPRESTO=1"
 
 #------------------------------------------------------------------------------#
+# CaveBanpresto-local deterministic save-state implementation.
+#------------------------------------------------------------------------------#
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateBus.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateBusMux.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateBusRouter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateBusCdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateControlCdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateReleaseCdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSystemCpuRestoreCdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoVideoDipRestoreCdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateDomainCoordinator.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateDdr.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateMaintenanceMux.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoRomIdentity.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateMetadata.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateTransport.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateStream.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateQuiesce.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateController.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateReleaseHardwareDiagnostic.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateUi.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateNvramOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSaveStateRamOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainRamSaveStatePort.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoEEPROMStatePort.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoFx68kSaveStateOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainControlSaveStateOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainRegisterSaveStateOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSystemStateOwner.sv
+set_global_assignment -name VHDL_FILE rtl/cave/savestate/CaveBanprestoT80SaveState.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundZ80SaveState.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoT80SaveStateOwner.sv
+set_global_assignment -name VHDL_FILE rtl/cave/savestate/CaveBanprestoSoundRamPrimitive.vhd
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundRamSaveStateOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundWrapperStatePort.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoJT03Exact.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoYM2203SaveState.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoIKAOPMExact.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoYM2151SaveState.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoOKIExact.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoOKIExactSaveStateOwner.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoAudioMixerSaveState.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundReleaseCoordinator.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundRomTransportSaveState.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoDipRegisterFile.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoVideoRegisterFile.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainLayerRegisterFile.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainSpriteRegisterFile.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoMainCommandEndpoint.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/savestate/CaveBanprestoSoundCommandEndpoint.sv
+
+#------------------------------------------------------------------------------#
 # Hand-maintained Cave HDL.
 #------------------------------------------------------------------------------#
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveAsyncMemArbiters.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/AudioMixer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveBurstDMAs.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/MazingerSpriteDecryptDMA.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/SailorMoonSpriteDecryptDMA.sv
@@ -29,6 +81,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveBurstBuffers.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveBurstMemArbiters.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveBoardProfile.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveClockEnable.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveHotdogAudioHardwareDiagnostic.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveDebugOverlay.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/MazingerBootWatchdog.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/MazingerMainDecoder.sv
@@ -42,19 +95,23 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/AirGalletMainMap.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/AirGalletLayer2TileRomAdapter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveDualClockFIFO.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveGameConfig.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/highscore/CaveBanprestoHighScoreManager.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveLayerProcessor.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveMainSupport.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveOKIM6295.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CavePageFlippers.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveReadCache.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveRequestQueues.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveMetmqstrSpritePageHardwareDiagnostic.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveSinglePortRam.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveSyncReadMem.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveSyncQueue.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveTrueDualPortRam.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveVideoHScale.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveVideoTiming.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/Cave.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveNvramWriteBackCache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveBanprestoMemSysNvramSaveState.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/ColorMixer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveTileRomClockCrossing.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cave/CaveCpuWrappers.sv

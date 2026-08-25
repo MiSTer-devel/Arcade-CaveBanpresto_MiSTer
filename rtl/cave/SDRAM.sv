@@ -13,6 +13,7 @@ module SDRAM(
   output        io_mem_wait_n,
   output        io_mem_valid,
   output        io_mem_burstDone,
+  output        io_idle,
   output        io_sdram_cs_n,
   output        io_sdram_ras_n,
   output        io_sdram_cas_n,
@@ -251,6 +252,14 @@ module SDRAM(
     (write & waitCounter < WRITE_BURST_LAST);
   assign io_mem_valid = validReg;
   assign io_mem_burstDone = readBurstDoneReg | (write & waitCounter == WRITE_BURST_LAST);
+  // Strict interface-drain evidence only. This does not gate the request
+  // inputs or the refresh sequencer, so owner-21 maintenance traffic and
+  // mandatory SDRAM refresh remain available after gameplay clients stop.
+  // Keep idle low on the cycle a refresh is due and through any registered
+  // read response/burst-complete tail.
+  assign io_idle =
+    ~reset & idle & ~triggerRefresh & ~isReadWrite &
+    ~validReg & ~readBurstDoneReg;
 
   assign io_sdram_cs_n = commandReg[3];
   assign io_sdram_ras_n = commandReg[2];

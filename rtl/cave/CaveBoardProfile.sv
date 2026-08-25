@@ -45,7 +45,7 @@ module CaveBoardProfile(
     game_is_hotdogstorm | game_is_mazinger | game_is_airgallet |
     game_is_sailormoon | game_is_metmqstr;
   assign board_is_vertical_clockwise =
-    game_is_hotdogstorm | game_is_mazinger | game_is_airgallet;
+    game_is_hotdogstorm | game_is_mazinger;
 
   assign sound_is_ymz280b = 1'b0;
   assign sound_is_oki = 1'b0;

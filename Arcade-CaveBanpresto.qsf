@@ -54,6 +54,8 @@ set_global_assignment -name VHDL_INPUT_VERSION VHDL_2008
 set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
 set_global_assignment -name SEED 1
 
+set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter"
+
 set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"
 # set_global_assignment -name VERILOG_MACRO "CAVE_ENABLE_DEBUG_OVERLAY=1"
 

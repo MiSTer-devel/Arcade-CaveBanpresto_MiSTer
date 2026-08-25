@@ -10,6 +10,7 @@ module SpriteDecoder(
   input  [63:0] io_tileRom_bits,
   input         io_pixelData_ready,
   output        io_pixelData_valid,
+  output        io_idle,
   output [7:0]  io_pixelData_bits_0,
   output [7:0]  io_pixelData_bits_1,
   output [7:0]  io_pixelData_bits_2,
@@ -74,6 +75,9 @@ module SpriteDecoder(
 
   assign io_tileRom_ready = pendingReg;
   assign io_pixelData_valid = validReg;
+  // pendingReg is the decoder's canonical request-for-next-row posture. Only
+  // validReg means decoded pixel data is still buffered for the blitter.
+  assign io_idle = ~validReg;
 
   assign io_pixelData_bits_0 =
     format8bpp ? {dataReg[67:64], dataReg[75:72]} : {4'h0, pixel4bpp_0};

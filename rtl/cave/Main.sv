@@ -7,6 +7,8 @@
 module Main(
   input          clock,
   input          reset,
+  input          io_systemClock,
+  input          io_systemReset,
   input          io_videoClock,
   input          io_spriteClock,
   input  [3:0]   io_gameIndex,
@@ -115,8 +117,95 @@ module Main(
   input  [15:0]  io_eeprom_dout,
   input          io_eeprom_wait_n,
   input          io_eeprom_valid,
+  input          io_hs_config_download,
+  input          io_hs_config_wr,
+  input  [26:0]  io_hs_config_addr,
+  input  [15:0]  io_hs_config_dout,
+  input  [3:0]   io_hs_game_index_sys,
+  input          io_hs_nvram_download,
+  input          io_hs_nvram_upload,
+  input          io_hs_nvram_rd,
+  input          io_hs_nvram_wr,
+  input  [26:0]  io_hs_nvram_addr,
+  input  [15:0]  io_hs_nvram_dout,
+  output [15:0]  io_hs_nvram_din,
+  output         io_hs_nvram_wait_n,
+  output         io_hs_dirty,
+  output         io_hs_active,
+  input          io_ss_command_valid,
+  input  [15:0]  io_ss_command,
+  output         io_ss_command_complete,
+  output [7:0]   io_ss_command_response,
+  output         io_ss_command_terminal_fault,
+  input          io_ss_release_request,
+  input          io_ss_release_restore,
+  output         io_ss_stopped,
+  output         io_ss_abort_ack,
+  output         io_ss_release_complete,
+  input          io_ss_state_enable,
+  input          io_ss_restore_enable,
+  input          io_ss_restore_begin,
+  input          io_ss_restore_commit,
+  input          io_ss_cpu_capture_req,
+  input          io_ss_cpu_restore_begin,
+  input          io_ss_cpu_restore_commit,
+  input          io_ss_cpu_abort,
+  output         io_ss_cpu_captured,
+  output         io_ss_cpu_restore_committed,
+  output         io_ss_cpu_abort_ack,
+  output         io_ss_cpu_terminal_fault,
+  input          io_ss_cpu_idle,
+  input          io_ss_render_idle,
+  input  [47:0]  io_ss_runtime_support,
+  output         io_ss_control_idle,
+  output         io_ss_control_restore_committed,
+  output         io_ss_control_terminal_fault,
+  output         io_ss_ram_idle,
+  output         io_ss_ram_terminal_fault,
+  output         io_ss_ram_takeover_active,
+  output         io_ss_ram_blocked_access,
+  input  [127:0] io_ss_video_register_state,
+  input  [3:0]   io_ss_config_offset_x,
+  input  [3:0]   io_ss_config_offset_y,
+  input          io_ss_config_rotate,
+  input          io_ss_config_compatibility,
+  input          io_ss_config_layer0_enable,
+  input          io_ss_config_layer1_enable,
+  input          io_ss_config_layer2_enable,
+  input          io_ss_config_sprite_enable,
+  input          io_ss_config_flip_video,
+  input  [3:0]   io_ss_config_psg_boost,
+  input  [3:0]   io_ss_config_fm_boost,
+  input  [3:0]   io_ss_config_oki0_boost,
+  input  [3:0]   io_ss_config_oki1_boost,
+  output         io_ss_register_idle,
+  output         io_ss_register_restore_committed,
+  output         io_ss_register_terminal_fault,
+  output         io_ss_register_restore_load,
+  input          io_ss_register_restore_applied,
+  input          io_ss_register_restore_bridge_fault,
+  output [127:0] io_ss_video_register_restore_state,
+  output [15:0]  io_ss_dip_register_restore_state,
+  output         io_ss_eeprom_idle,
+  output         io_ss_eeprom_restore_committed,
+  output         io_ss_eeprom_terminal_fault,
+  cavebanpresto_ssbus_if.responder io_ss_cpu_bus,
+  cavebanpresto_ssbus_if.responder io_ss_control_bus,
+  cavebanpresto_ssbus_if.responder io_ss_register_bus,
+  cavebanpresto_ssbus_if.responder io_ss_eeprom_bus,
+  cavebanpresto_ssbus_if.responder io_ss_ram_bus,
   output         io_sailorMoonTilebank,
   output         io_spriteFrameBufferSwap,
+`ifdef CAVEBANPRESTO_SS_RELEASE_SLIM_HW_DIAGNOSTIC
+  output reg     io_ss_capture_admitted_seen,
+`endif
+`ifdef CAVEBANPRESTO_SS_RELEASE_HW_DIAGNOSTIC
+  output         io_ss_release_eligible,
+  output [3:0]   io_ss_release_owner_idle,
+  output [1:0]   io_ss_release_detail,
+  output [4:0]   io_ss_release_state,
+  output [31:0]  io_ss_release_fault_debug,
+`endif
   output [63:0] io_debug_pipeline,
   output [63:0] io_debug_cpu,
   output [63:0] io_debug_writes,
@@ -138,6 +227,64 @@ module Main(
   wire        gameIsSailorMoon = io_gameIndex == GAME_SAILORMN;
   wire        gameIsMetmqstr = io_gameIndex == GAME_METMQSTR;
   wire        gameIsAirFamily = gameIsAirGallet | gameIsSailorMoon;
+
+  // Owners 4-19 are the complete Main mutable-RAM group.  The local profile
+  // mask independently enforces physical presence in addition to the global
+  // metadata/runtime mask:
+  //   Hotdog: 4, 9-19
+  //   Mazinger: 4, 9-11, 14
+  //   Air Gallet/Sailor Moon: 4-19
+  //   Metamoqester: 9-19
+  localparam [47:0] SS_RAM_COMPILED_SUPPORT =
+    48'h0000_000F_FFF0;
+  wire [15:0] ssGameRamSupport =
+    gameIsHotdogStorm ? 16'hFFE1 :
+    gameIsMazinger    ? 16'h04E1 :
+    gameIsAirFamily   ? 16'hFFFF :
+    gameIsMetmqstr    ? 16'hFFE0 :
+                        16'h0000;
+  wire [47:0] ssRamRuntimeSupport =
+    io_ss_runtime_support & {28'd0, ssGameRamSupport, 4'd0};
+
+  // The held command endpoint is the sole authority for Main save-state
+  // control.  The legacy scalar command inputs remain at this integration
+  // boundary only until the parent coordinator is migrated.
+  wire mainStateHold;
+  wire mainRestoreEnable;
+  wire mainRestoreBegin;
+  wire mainCpuCaptureRequest;
+  wire mainCpuCaptureRequestToCpu;
+  wire mainCpuFinalRestoreCommit;
+  wire mainCpuAbort;
+  wire mainOwner3RestoreCommit;
+  wire mainOwner20RestoreCommit;
+  wire mainOwner22RestoreCommit;
+  wire mainNoncpuOwnerReset;
+`ifdef CAVEBANPRESTO_SS_RELEASE_HW_DIAGNOSTIC
+  localparam [4:0] SS_MAIN_COMMAND_RELEASE_WAIT = 5'd20;
+  wire [4:0] mainCommandStateDebug;
+  wire [31:0] mainCommandFaultDebug;
+`endif
+  wire mainNoncpuOwnerResetWire = reset | mainNoncpuOwnerReset;
+
+  wire ssRamTakeoverPermitted =
+    mainStateHold & io_ss_cpu_captured & io_ss_render_idle;
+  wire mainControlStateHold =
+    (mainStateHold === 1'b1) &&
+    (io_ss_cpu_captured === 1'b1);
+  wire mainRegisterStateHold =
+    (mainStateHold === 1'b1) &&
+    (io_ss_cpu_captured === 1'b1) &&
+    (io_ss_render_idle === 1'b1);
+
+  cavebanpresto_ssbus_if mainRamOwnerBus [16] ();
+  wire [15:0] ssRamTakeover;
+  wire [15:0] ssRamBlockedNormalAccess;
+  wire        ssRamBusMultipleAck;
+  wire        ssRamBusTimeout;
+  wire        ssRamBusFault;
+  wire        ssRamBusIdle;
+  reg         ssRamSafetyFault;
 
   wire [1:0]  _spriteRegs_io_mem_mask;
   wire [15:0] _spriteRegs_io_regs_0;
@@ -206,7 +353,61 @@ module Main(
   wire        eepromSerialCs;
   wire        eepromSerialSck;
   wire        eepromSerialSdi;
+  wire [2:0]  eepromSerialPinState;
   wire        eepromMem_wr;
+  wire [2:0]  cpuBusStrobeState;
+  wire [3:0]  vblankTrackerState;
+  wire [23:0] coin1PulseState;
+  wire [23:0] coin2PulseState;
+  wire [28:0] servicePulseState;
+  wire [1:0]  pauseState;
+  wire [43:0] mazingerControlState;
+  wire [13:0] metmqstrWatchdogState;
+  wire [95:0] hotdogGapState;
+  wire [95:0] metmqstrGapState;
+  wire [359:0] mainControlLiveState;
+  wire [359:0] mainControlRestoreState;
+  wire         mainControlRestoreLoad;
+  wire         mainControlOwnerIdle;
+  wire         mainControlValidationComplete;
+  wire         mainControlValidationValid;
+  wire         mainControlWriteComplete;
+  wire         mainControlWriteValid;
+  wire [31:0]  mainCpuSavedSsp;
+  wire [31:0]  mainCpuRestoreSsp;
+  wire [511:0] mainCpuSavedContext;
+  wire [511:0] mainCpuRestoreContext;
+  wire         mainCpuRestoreLoad;
+  wire         mainCpuRestoreDone;
+  wire         mainCpuOwnerAbortSafe;
+  wire         mainCpuOwnerIdle;
+  wire         mainCpuWrapperTerminalFault;
+  wire         mainCpuValidationComplete;
+  wire         mainCpuValidationValid;
+  wire         mainCpuWriteComplete;
+  wire         mainCpuWriteValid;
+  wire [47:0]  mainLayer0RegisterState;
+  wire [47:0]  mainLayer1RegisterState;
+  wire [47:0]  mainLayer2RegisterState;
+  wire [127:0] mainSpriteRegisterState;
+  wire [271:0] mainRegisterLiveState;
+  wire [271:0] mainRegisterRestoreState;
+  wire [3:0]   mainRegisterBlockedWrite;
+  wire         mainRegisterRestoreLoad;
+  wire         mainRegisterOwnerIdle;
+  wire         mainRegisterValidationComplete;
+  wire         mainRegisterValidationValid;
+  wire         mainRegisterWriteComplete;
+  wire         mainRegisterWriteValid;
+  wire [47:0]  eepromLiveState;
+  wire [47:0]  eepromRestoreState;
+  wire         eepromRestoreLoad;
+  wire         eepromDeviceIdle;
+  wire         eepromOwnerIdle;
+  wire         eepromValidationComplete;
+  wire         eepromValidationValid;
+  wire         eepromWriteComplete;
+  wire         eepromWriteValid;
   reg         io_gpuMem_layer_0_regs_r_tileSize;
   reg         io_gpuMem_layer_0_regs_r_enable;
   reg         io_gpuMem_layer_0_regs_r_flipX;
@@ -269,12 +470,25 @@ module Main(
   wire [23:0] cpuByteAddr = {_cpu_io_addr, 1'b0};
   wire [1:0]  mainRam_io_mask = {_cpu_io_uds, _cpu_io_lds};
   wire [7:0]  cpuWriteByte = _cpu_io_uds ? _cpu_io_dout[15:8] : _cpu_io_dout[7:0];
+  wire        highScoreCpuHold;
+  wire        highScoreCpuHoldAck;
+  wire        highScoreRamOwned;
+  wire        highScoreRamTargetSprite;
+  wire        highScoreRamRd;
+  wire        highScoreRamWr;
+  wire [14:0] highScoreRamAddr;
+  wire [1:0]  highScoreRamMask;
+  wire [15:0] highScoreRamDin;
 
   CaveVBlankTracker vblankTracker(
-    .clock   (clock),
-    .vblank  (io_video_vBlank),
-    .rising  (videoVBlankRising),
-    .falling (videoVBlankFalling)
+    .clock        (clock),
+    .vblank       (io_video_vBlank),
+    .ss_hold      (mainControlStateHold),
+    .ss_load      (mainControlRestoreLoad),
+    .ss_state_in  (mainControlRestoreState[32:29]),
+    .ss_state_out (vblankTrackerState),
+    .rising       (videoVBlankRising),
+    .falling      (videoVBlankFalling)
   );
 
   CaveCpuBusStrobes cpuBusStrobes(
@@ -283,6 +497,10 @@ module Main(
     .uds          (_cpu_io_uds),
     .lds          (_cpu_io_lds),
     .rw           (_cpu_io_rw),
+    .ss_hold      (mainControlStateHold),
+    .ss_load      (mainControlRestoreLoad),
+    .ss_state_in  (mainControlRestoreState[28:26]),
+    .ss_state_out (cpuBusStrobeState),
     .read_strobe  (readStrobe),
     .write_strobe (writeStrobe)
   );
@@ -294,6 +512,10 @@ module Main(
     .clock(clock),
     .reset(reset),
     .signal_in(io_player_0_coin),
+    .ss_hold(mainControlStateHold),
+    .ss_load(mainControlRestoreLoad),
+    .ss_state_in(mainControlRestoreState[56:33]),
+    .ss_state_out(coin1PulseState),
     .pulse_active(coin1PulseActive)
   );
 
@@ -304,6 +526,10 @@ module Main(
     .clock(clock),
     .reset(reset),
     .signal_in(io_player_1_coin),
+    .ss_hold(mainControlStateHold),
+    .ss_load(mainControlRestoreLoad),
+    .ss_state_in(mainControlRestoreState[80:57]),
+    .ss_state_out(coin2PulseState),
     .pulse_active(coin2PulseActive)
   );
 
@@ -314,6 +540,10 @@ module Main(
     .clock(clock),
     .reset(reset),
     .signal_in(io_options_service),
+    .ss_hold(mainControlStateHold),
+    .ss_load(mainControlRestoreLoad),
+    .ss_state_in(mainControlRestoreState[109:81]),
+    .ss_state_out(servicePulseState),
     .pulse_active(servicePulseActive)
   );
 
@@ -358,6 +588,10 @@ module Main(
     .guwange_layout (1'b0),
     .metmqstr_layout(gameIsMetmqstr),
     .data           (_cpu_io_dout),
+    .ss_hold        (mainControlStateHold),
+    .ss_load        (mainControlRestoreLoad),
+    .ss_state_in    (mainControlRestoreState[25:23]),
+    .ss_state_out   (eepromSerialPinState),
     .serial_cs      (eepromSerialCs),
     .serial_sck     (eepromSerialSck),
     .serial_sdi     (eepromSerialSdi)
@@ -367,6 +601,10 @@ module Main(
     .clock         (clock),
     .reset         (reset),
     .pause_pressed (pausePressed),
+    .ss_hold       (mainControlStateHold),
+    .ss_load       (mainControlRestoreLoad),
+    .ss_state_in   (mainControlRestoreState[22:21]),
+    .ss_state_out  (pauseState),
     .pause_active  (pauseActive)
   );
 
@@ -679,6 +917,10 @@ module Main(
     .sprite_ram_data      (_spriteRam_io_portA_dout),
     .main_ram_data        (_mainRam_io_dout),
     .prog_rom_data        (io_progRom_dout),
+    .ss_hold              (mainControlStateHold),
+    .ss_load              (mainControlRestoreLoad),
+    .ss_state_in          (mainControlRestoreState[153:110]),
+    .ss_state_out         (mazingerControlState),
     .cpu_byte_addr        (),
     .prog_rom_select      (mazingerProgRomSelect),
     .main_ram_select      (mazingerMainRamSelect),
@@ -862,6 +1104,10 @@ module Main(
     .sprite_ram_data      (_spriteRam_io_portA_dout),
     .main_ram_data        (_mainRam_io_dout),
     .prog_rom_data        (io_progRom_dout),
+    .ss_hold              (mainControlStateHold),
+    .ss_load              (mainControlRestoreLoad),
+    .ss_state_in          (mainControlRestoreState[263:168]),
+    .ss_state_out         (hotdogGapState),
     .cpu_byte_addr        (hotdogCpuByteAddr),
     .prog_rom_select      (hotdogProgRomSelect),
     .main_ram_select      (hotdogMainRamSelect),
@@ -943,6 +1189,10 @@ module Main(
     .sound_reply_empty    (io_soundCtrl_reply_empty),
     .sprite_ram_data      (_spriteRam_io_portA_dout),
     .prog_rom_data        (io_progRom_dout),
+    .ss_hold              (mainControlStateHold),
+    .ss_load              (mainControlRestoreLoad),
+    .ss_state_in          (mainControlRestoreState[359:264]),
+    .ss_state_out         (metmqstrGapState),
     .cpu_byte_addr        (metmqstrCpuByteAddr),
     .prog_rom_packed_addr (metmqstrProgRomPackedAddr),
     .prog_rom_select      (metmqstrProgRomSelect),
@@ -1141,10 +1391,16 @@ module Main(
   assign io_sailorMoonTilebank = sailorMoonTilebankReg;
 
   always @(posedge clock) begin
-    if (reset | ~gameIsSailorMoon)
+    if (reset)
       sailorMoonTilebankReg <= 1'b0;
-    else if (airGalletEepromWrite)
-      sailorMoonTilebankReg <= cpuWriteByte[0];
+    else if (mainControlRestoreLoad)
+      sailorMoonTilebankReg <= mainControlRestoreState[20];
+    else if (!mainControlStateHold) begin
+      if (~gameIsSailorMoon)
+        sailorMoonTilebankReg <= 1'b0;
+      else if (airGalletEepromWrite)
+        sailorMoonTilebankReg <= cpuWriteByte[0];
+    end
   end
 
   always @(posedge clock) begin
@@ -1155,7 +1411,14 @@ module Main(
       dinReg <= 16'h0000;
       dtackReg <= 1'b0;
     end
-    else begin
+    else if (mainControlRestoreLoad) begin
+      videoIrq <= mainControlRestoreState[0];
+      agalletIrq <= mainControlRestoreState[1];
+      unknownIrq <= mainControlRestoreState[2];
+      dinReg <= mainControlRestoreState[18:3];
+      dtackReg <= mainControlRestoreState[19];
+    end
+    else if (!mainControlStateHold) begin
       agalletIrq <= videoVBlankRising | (~videoVBlankFalling & agalletIrq);
 
       if (gameIsAirFamily) begin
@@ -2233,36 +2496,128 @@ module Main(
   end // always @(posedge)
   assign _cpu_io_vpa = _cpu_io_as & (&_cpu_io_fc);
   assign _cpu_io_ipl = {2'h0, videoIrq | io_soundCtrl_irq | unknownIrq};
-  CaveMain68kCpu cpu (
-    .clock    (clock),
-    .reset    (mainCpuReset),
-    .io_halt  (pauseActive),
-    .io_as    (_cpu_io_as),
-    .io_rw    (_cpu_io_rw),
-    .io_uds   (_cpu_io_uds),
-    .io_lds   (_cpu_io_lds),
-    .io_dtack (dtackReg),
-    .io_vpa   (_cpu_io_vpa),
-    .io_ipl   (_cpu_io_ipl),
-    .io_fc    (_cpu_io_fc),
-    .io_addr  (_cpu_io_addr),
-    .io_din   (dinReg),
-    .io_dout  (_cpu_io_dout)
+  CaveBanprestoCaptureBoundaryGate
+  captureBoundaryGate (
+    .request_i           (mainCpuCaptureRequest),
+    .level1_iack_i       (
+      _cpu_io_as && (&_cpu_io_fc) && (_cpu_io_ipl == 3'b001)
+    ),
+    .paused_i            (pauseActive),
+    .request_o           (mainCpuCaptureRequestToCpu)
   );
-  EEPROM eeprom (
-    .clock         (clock),
-    .reset         (reset),
-    .io_mem_rd     (io_eeprom_rd),
-    .io_mem_wr     (io_eeprom_wr),
-    .io_mem_addr   (io_eeprom_addr),
-    .io_mem_din    (io_eeprom_din),
-    .io_mem_dout   (io_eeprom_dout),
-    .io_mem_wait_n (io_eeprom_wait_n),
-    .io_mem_valid  (io_eeprom_valid),
-    .io_serial_cs  (eepromSerialCs),
-    .io_serial_sck (eepromSerialSck),
-    .io_serial_sdi (eepromSerialSdi),
-    .io_serial_sdo (_eeprom_io_serial_sdo)
+
+`ifdef CAVEBANPRESTO_SS_RELEASE_SLIM_HW_DIAGNOSTIC
+  // A one-cycle admitted request is too short for slow JTAG sampling.  Keep a
+  // diagnostic-only sticky witness in the same clock domain as the gate; the
+  // top level synchronizes this level before placing it in the compact probe.
+  always @(posedge clock) begin
+    if (reset)
+      io_ss_capture_admitted_seen <= 1'b0;
+    else if (mainCpuCaptureRequestToCpu)
+      io_ss_capture_admitted_seen <= 1'b1;
+  end
+`endif
+  CaveMain68kCpu cpu (
+    .clock                  (clock),
+    .reset                  (mainCpuReset),
+    .io_halt                (pauseActive),
+    .io_external_hold       (highScoreCpuHold),
+    .io_external_hold_ack   (highScoreCpuHoldAck),
+    .io_ss_state_enable     (mainStateHold),
+    .io_ss_capture_request  (mainCpuCaptureRequestToCpu),
+    .io_ss_restore_load     (mainCpuRestoreLoad),
+    .io_ss_restore_ssp      (mainCpuRestoreSsp),
+    .io_ss_restore_context  (mainCpuRestoreContext),
+    .io_ss_abort            (mainCpuAbort),
+    .io_ss_owner_abort_safe (mainCpuOwnerAbortSafe),
+    .io_ss_capture_done     (io_ss_cpu_captured),
+    .io_ss_saved_ssp        (mainCpuSavedSsp),
+    .io_ss_saved_context    (mainCpuSavedContext),
+    .io_ss_restore_done     (mainCpuRestoreDone),
+    .io_ss_abort_ack        (io_ss_cpu_abort_ack),
+    .io_ss_terminal_fault   (mainCpuWrapperTerminalFault),
+    .io_as                  (_cpu_io_as),
+    .io_rw                  (_cpu_io_rw),
+    .io_uds                 (_cpu_io_uds),
+    .io_lds                 (_cpu_io_lds),
+    .io_dtack               (dtackReg),
+    .io_vpa                 (_cpu_io_vpa),
+    .io_ipl                 (_cpu_io_ipl),
+    .io_fc                  (_cpu_io_fc),
+    .io_addr                (_cpu_io_addr),
+    .io_din                 (dinReg),
+    .io_dout                (_cpu_io_dout)
+  );
+
+  // High-score ownership is independent of save-state serialization. It may
+  // begin only while Main's save-state hold is absent. The CPU wrapper freezes
+  // fx68k's phase enables on an idle external-bus boundary and acknowledges
+  // that frozen state before either RAM port is selected below.
+  wire highScoreNormalRamWr =
+    gameIsMetmqstr ? spriteRam_io_portA_wr : mainRam_io_wr;
+  wire [15:0] highScoreRamDout =
+    highScoreRamTargetSprite ?
+      _spriteRam_io_portA_dout : _mainRam_io_dout;
+
+  CaveBanprestoHighScoreManager highScoreManager (
+    .sys_clock         (io_systemClock),
+    .sys_reset         (io_systemReset),
+    .cpu_clock         (clock),
+    .cpu_reset         (mainCpuReset),
+    .game_index_sys    (io_hs_game_index_sys),
+    .game_index_cpu    (io_gameIndex),
+    .config_download   (io_hs_config_download),
+    .config_wr         (io_hs_config_wr),
+    .config_addr       (io_hs_config_addr),
+    .config_dout       (io_hs_config_dout),
+    .nvram_download    (io_hs_nvram_download),
+    .nvram_upload      (io_hs_nvram_upload),
+    .nvram_rd          (io_hs_nvram_rd),
+    .nvram_wr          (io_hs_nvram_wr),
+    .nvram_addr        (io_hs_nvram_addr),
+    .nvram_dout        (io_hs_nvram_dout),
+    .nvram_din         (io_hs_nvram_din),
+    .nvram_wait_n      (io_hs_nvram_wait_n),
+    .ss_hold_cpu       (mainStateHold),
+    .cpu_idle          (highScoreCpuHoldAck),
+    .normal_ram_wr     (highScoreNormalRamWr),
+    .normal_byte_addr  (cpuByteAddr),
+    .normal_ram_mask   (mainRam_io_mask),
+    .normal_ram_din    (_cpu_io_dout),
+    .cpu_hold          (highScoreCpuHold),
+    .ram_owned         (highScoreRamOwned),
+    .ram_rd            (highScoreRamRd),
+    .ram_wr            (highScoreRamWr),
+    .ram_addr          (highScoreRamAddr),
+    .ram_mask          (highScoreRamMask),
+    .ram_din           (highScoreRamDin),
+    .ram_target_sprite (highScoreRamTargetSprite),
+    .ram_dout          (highScoreRamDout),
+    .dirty_sys         (io_hs_dirty),
+    .active_sys        (io_hs_active)
+  );
+
+  EEPROM #(
+    .SAVE_STATE_ENABLE(1'b1)
+  ) eeprom (
+    .clock           (clock),
+    .reset           (reset),
+    .io_ss_hold      (mainStateHold),
+    .io_ss_load      (eepromRestoreLoad),
+    .io_ss_state_in  (eepromRestoreState),
+    .io_ss_state_out (eepromLiveState),
+    .io_ss_idle      (eepromDeviceIdle),
+    .io_mem_rd       (io_eeprom_rd),
+    .io_mem_wr       (io_eeprom_wr),
+    .io_mem_addr     (io_eeprom_addr),
+    .io_mem_din      (io_eeprom_din),
+    .io_mem_dout     (io_eeprom_dout),
+    .io_mem_wait_n   (io_eeprom_wait_n),
+    .io_mem_valid    (io_eeprom_valid),
+    .io_serial_cs    (eepromSerialCs),
+    .io_serial_sck   (eepromSerialSck),
+    .io_serial_sdi   (eepromSerialSdi),
+    .io_serial_sdo   (_eeprom_io_serial_sdo)
   );
   MetmqstrBootWatchdog metmqstrBootWatchdog (
     .clock                  (clock),
@@ -2272,13 +2627,427 @@ module Main(
     .sprite_ram_addr        (_cpu_io_addr[14:0]),
     .sprite_ram_mask        (mainRam_io_mask),
     .sprite_ram_din         (_cpu_io_dout),
+    .ss_hold                (mainControlStateHold),
+    .ss_load                (mainControlRestoreLoad),
+    .ss_state_in            (mainControlRestoreState[167:154]),
+    .ss_state_out           (metmqstrWatchdogState),
     .cpu_reset              (metmqstrCpuReset),
     .marker_seen            (metmqstrBootMarkerSeen),
     .watchdog_delay_active  (metmqstrBootWatchdogDelayActive),
     .watchdog_reset_active  (metmqstrBootWatchdogResetActive),
     .watchdog_trip          (metmqstrBootWatchdogTrip)
   );
+
+  // Owner 3 contains only Main-local CPU-clocked control state. The ordering
+  // here is the serialized ABI documented by
+  // CaveBanprestoMainControlSaveStateOwner; per-profile inactive fields are
+  // canonicalized by that owner rather than allowed to leak stale gap/watchdog
+  // registers into a save image.
+  assign mainControlLiveState = {
+    metmqstrGapState,
+    hotdogGapState,
+    metmqstrWatchdogState,
+    mazingerControlState,
+    servicePulseState,
+    coin2PulseState,
+    coin1PulseState,
+    vblankTrackerState,
+    cpuBusStrobeState,
+    eepromSerialPinState,
+    pauseState,
+    sailorMoonTilebankReg,
+    dtackReg,
+    dinReg,
+    unknownIrq,
+    agalletIrq,
+    videoIrq
+  };
+
+  CaveBanprestoFx68kSaveStateOwner #(
+    .OWNER_INDEX(8'd2),
+    .FORMAT_TAG(32'h3638_4b32)
+  ) mainCpuSaveStateOwner (
+    .clk_i                   (clock),
+    .reset_i                 (reset),
+    .state_enable_i          (mainStateHold),
+    .restore_enable_i        (mainRestoreEnable),
+    .restore_begin_i         (mainRestoreBegin),
+    .cpu_restore_commit_i    (mainCpuFinalRestoreCommit),
+    .abort_i                 (mainCpuAbort),
+    .state_held_i            (io_ss_cpu_captured),
+    .profile_i               (io_gameIndex),
+    .live_ssp_i              (mainCpuSavedSsp),
+    .live_context_i          (mainCpuSavedContext),
+    .cpu_restore_done_i      (mainCpuRestoreDone),
+    .cpu_terminal_fault_i    (mainCpuWrapperTerminalFault),
+    .restore_ssp_o           (mainCpuRestoreSsp),
+    .restore_context_o       (mainCpuRestoreContext),
+    .restore_load_o          (mainCpuRestoreLoad),
+    .abort_safe_o            (mainCpuOwnerAbortSafe),
+    .validation_complete_o   (mainCpuValidationComplete),
+    .validation_valid_o      (mainCpuValidationValid),
+    .write_complete_o        (mainCpuWriteComplete),
+    .write_valid_o           (mainCpuWriteValid),
+    .restore_committed_o     (io_ss_cpu_restore_committed),
+    .terminal_fault_o        (io_ss_cpu_terminal_fault),
+    .owner_idle_o            (mainCpuOwnerIdle),
+    .ssbus                   (io_ss_cpu_bus)
+  );
+
+  CaveBanprestoMainControlSaveStateOwner #(
+    .OWNER_INDEX(8'd3),
+    .FORMAT_TAG(16'h4d33)
+  ) mainControlSaveStateOwner (
+    .clk_i                 (clock),
+    .reset_i               (mainNoncpuOwnerResetWire),
+    .state_enable_i        (mainStateHold),
+    .restore_enable_i      (mainRestoreEnable),
+    .restore_begin_i       (mainRestoreBegin),
+    .restore_commit_i      (mainOwner3RestoreCommit),
+    .state_held_i          (mainControlStateHold),
+    .profile_i             (io_gameIndex),
+    .live_state_i          (mainControlLiveState),
+    .restore_load_o        (mainControlRestoreLoad),
+    .restore_state_o       (mainControlRestoreState),
+    .validation_complete_o (mainControlValidationComplete),
+    .validation_valid_o    (mainControlValidationValid),
+    .write_complete_o      (mainControlWriteComplete),
+    .write_valid_o         (mainControlWriteValid),
+    .restore_committed_o   (io_ss_control_restore_committed),
+    .terminal_fault_o      (io_ss_control_terminal_fault),
+    .owner_idle_o          (mainControlOwnerIdle),
+    .ssbus                 (io_ss_control_bus)
+  );
+
+  assign io_ss_control_idle =
+    mainControlOwnerIdle &&
+    ((mainStateHold !== 1'b1) || mainControlStateHold);
+
+  // Owner 20 is deliberately disjoint from owner 3.  Main supplies only its
+  // seventeen physical layer/sprite cells here; VideoSys contributes all eight
+  // of its cells through the explicit external bundle, and the existing
+  // io_dips_0 path is the live physical DIP cell.  Configuration inputs are
+  // validation-only and have no restore output.
+  assign mainRegisterLiveState = {
+    mainSpriteRegisterState,
+    mainLayer2RegisterState,
+    mainLayer1RegisterState,
+    mainLayer0RegisterState
+  };
+
+  CaveBanprestoMainRegisterSaveStateOwner #(
+    .OWNER_INDEX(8'd20),
+    .FORMAT_TAG(16'h5232)
+  ) mainRegisterSaveStateOwner (
+    .clk_i                       (clock),
+    .reset_i                     (mainNoncpuOwnerResetWire),
+    .state_enable_i              (mainStateHold),
+    .restore_enable_i            (mainRestoreEnable),
+    .restore_begin_i             (mainRestoreBegin),
+    .restore_commit_i            (mainOwner20RestoreCommit),
+    .state_held_i                (mainRegisterStateHold),
+    .blocked_normal_write_i      (|mainRegisterBlockedWrite),
+    .main_state_i                (mainRegisterLiveState),
+    .video_state_i               (io_ss_video_register_state),
+    .dip_state_i                 (io_dips_0),
+    .config_offset_x_i           (io_ss_config_offset_x),
+    .config_offset_y_i           (io_ss_config_offset_y),
+    .config_rotate_i             (io_ss_config_rotate),
+    .config_compatibility_i      (io_ss_config_compatibility),
+    .config_layer0_enable_i      (io_ss_config_layer0_enable),
+    .config_layer1_enable_i      (io_ss_config_layer1_enable),
+    .config_layer2_enable_i      (io_ss_config_layer2_enable),
+    .config_sprite_enable_i      (io_ss_config_sprite_enable),
+    .config_flip_video_i         (io_ss_config_flip_video),
+    .config_psg_boost_i          (io_ss_config_psg_boost),
+    .config_fm_boost_i           (io_ss_config_fm_boost),
+    .config_oki0_boost_i         (io_ss_config_oki0_boost),
+    .config_oki1_boost_i         (io_ss_config_oki1_boost),
+    .restore_load_o              (mainRegisterRestoreLoad),
+    .restore_main_state_o        (mainRegisterRestoreState),
+    .restore_video_state_o       (
+      io_ss_video_register_restore_state
+    ),
+    .restore_dip_state_o         (io_ss_dip_register_restore_state),
+    .validation_complete_o       (mainRegisterValidationComplete),
+    .validation_valid_o          (mainRegisterValidationValid),
+    .write_complete_o            (mainRegisterWriteComplete),
+    .write_valid_o               (mainRegisterWriteValid),
+    .restore_committed_o         (
+      io_ss_register_restore_committed
+    ),
+    .terminal_fault_o            (io_ss_register_terminal_fault),
+    .owner_idle_o                (mainRegisterOwnerIdle),
+    .ssbus                       (io_ss_register_bus)
+  );
+
+  assign io_ss_register_restore_load = mainRegisterRestoreLoad;
+  assign io_ss_register_idle =
+    mainRegisterOwnerIdle &&
+    ((mainStateHold !== 1'b1) || mainRegisterStateHold);
+
+  // Owner 22 serializes the EEPROM controller's exact 48-bit live state.  Its
+  // dedicated bus remains disjoint from the mutable-RAM owner mux below.
+  CaveBanprestoEEPROMStatePort #(
+    .OWNER_INDEX(8'd22),
+    .FORMAT_TAG(16'h4545)
+  ) eepromSaveStateOwner (
+    .clk_i                 (clock),
+    .reset_i               (mainNoncpuOwnerResetWire),
+    .state_enable_i        (mainStateHold),
+    .restore_enable_i      (mainRestoreEnable),
+    .restore_begin_i       (mainRestoreBegin),
+    .restore_commit_i      (mainOwner22RestoreCommit),
+    .device_idle_i         (eepromDeviceIdle),
+    .live_state_i          (eepromLiveState),
+    .restore_load_o        (eepromRestoreLoad),
+    .restore_state_o       (eepromRestoreState),
+    .validation_complete_o (eepromValidationComplete),
+    .validation_valid_o    (eepromValidationValid),
+    .write_complete_o      (eepromWriteComplete),
+    .write_valid_o         (eepromWriteValid),
+    .restore_committed_o   (io_ss_eeprom_restore_committed),
+    .terminal_fault_o      (io_ss_eeprom_terminal_fault),
+    .owner_idle_o          (eepromOwnerIdle),
+    .ssbus                 (io_ss_eeprom_bus)
+  );
+
+  assign io_ss_eeprom_idle = eepromOwnerIdle;
+
+`ifdef CAVEBANPRESTO_SS_RELEASE_HW_DIAGNOSTIC
+  // Development-only visibility of the exact StReleaseWait hold-withdrawal
+  // predicate.  Bits [3:0] are owner 22, owner 20, owner 3, and CPU.
+  assign io_ss_release_owner_idle = {
+    (eepromOwnerIdle === 1'b1),
+    (mainRegisterOwnerIdle === 1'b1),
+    (io_ss_control_idle === 1'b1),
+    (mainCpuOwnerIdle === 1'b1)
+  };
+  // Detail bits are render-idle and CPU-owner-bus-quiet respectively.
+  assign io_ss_release_detail = {
+    (io_ss_render_idle === 1'b1),
+    ({
+      io_ss_cpu_bus.req_query,
+      io_ss_cpu_bus.req_validate,
+      io_ss_cpu_bus.req_write,
+      io_ss_cpu_bus.req_read
+    } === 4'b0000)
+  };
+  assign io_ss_release_eligible =
+    (mainCommandStateDebug === SS_MAIN_COMMAND_RELEASE_WAIT) &&
+    (mainStateHold === 1'b1) &&
+    (io_ss_cpu_captured === 1'b1) &&
+    (&io_ss_release_owner_idle);
+  assign io_ss_release_state = mainCommandStateDebug;
+  assign io_ss_release_fault_debug = mainCommandFaultDebug;
+`endif
+
+  // Commands cross into Main as one held packet.  This endpoint captures the
+  // STOP epoch, owns the persistent hold, and admits restore mutation only in
+  // the fixed owner order 3 -> 20 -> 22 -> CPU-final.
+  CaveBanprestoMainCommandEndpoint mainCommandEndpoint (
+    .clk_i                            (clock),
+    .reset_i                          (reset),
+    .command_valid_i                  (io_ss_command_valid),
+    .command_i                        (io_ss_command),
+    .command_complete_o               (io_ss_command_complete),
+    .command_response_o               (io_ss_command_response),
+    .terminal_fault_o                 (
+      io_ss_command_terminal_fault
+    ),
+    .game_index_i                     (io_gameIndex),
+    .release_request_i                (io_ss_release_request),
+    .release_restore_i                (io_ss_release_restore),
+    .release_complete_o               (io_ss_release_complete),
+    .state_hold_o                     (mainStateHold),
+    .restore_enable_o                 (mainRestoreEnable),
+    .cpu_capture_request_o            (mainCpuCaptureRequest),
+    .restore_begin_o                  (mainRestoreBegin),
+    .owner3_restore_commit_o          (mainOwner3RestoreCommit),
+    .owner20_restore_commit_o         (mainOwner20RestoreCommit),
+    .owner22_restore_commit_o         (mainOwner22RestoreCommit),
+    .cpu_final_restore_commit_o       (
+      mainCpuFinalRestoreCommit
+    ),
+    .cpu_abort_o                      (mainCpuAbort),
+    .noncpu_owner_reset_o             (mainNoncpuOwnerReset),
+    .cpu_captured_i                   (io_ss_cpu_captured),
+    .cpu_restore_done_i               (mainCpuRestoreDone),
+    .cpu_abort_ack_i                  (io_ss_cpu_abort_ack),
+    .cpu_validation_complete_i        (
+      mainCpuValidationComplete
+    ),
+    .cpu_validation_valid_i           (mainCpuValidationValid),
+    .cpu_write_complete_i             (mainCpuWriteComplete),
+    .cpu_write_valid_i                (mainCpuWriteValid),
+    .cpu_restore_committed_i          (
+      io_ss_cpu_restore_committed
+    ),
+    .cpu_owner_idle_i                 (mainCpuOwnerIdle),
+    .cpu_terminal_fault_i             (io_ss_cpu_terminal_fault),
+    .owner3_validation_complete_i     (
+      mainControlValidationComplete
+    ),
+    .owner3_validation_valid_i        (
+      mainControlValidationValid
+    ),
+    .owner3_write_complete_i          (mainControlWriteComplete),
+    .owner3_write_valid_i             (mainControlWriteValid),
+    .owner3_restore_load_i            (mainControlRestoreLoad),
+    .owner3_restore_committed_i       (
+      io_ss_control_restore_committed
+    ),
+    // The endpoint separately proves CPU capture in every normal held phase.
+    // Abort recovery deliberately releases the CPU before it drains owner 3,
+    // so this lane must use the owner's raw idle rather than the aggregate
+    // idle that is gated by mainControlStateHold.
+    .owner3_idle_i                    (mainControlOwnerIdle),
+    .owner3_terminal_fault_i          (
+      io_ss_control_terminal_fault
+    ),
+    .owner20_validation_complete_i    (
+      mainRegisterValidationComplete
+    ),
+    .owner20_validation_valid_i       (
+      mainRegisterValidationValid
+    ),
+    .owner20_write_complete_i         (mainRegisterWriteComplete),
+    .owner20_write_valid_i            (mainRegisterWriteValid),
+    .owner20_restore_load_i           (mainRegisterRestoreLoad),
+    .owner20_restore_committed_i      (
+      io_ss_register_restore_committed
+    ),
+    .owner20_external_applied_i       (
+      io_ss_register_restore_applied
+    ),
+    // Release must observe the owner's transaction state directly.  The
+    // render-gated aggregate remains the quiesce/admission signal, but can
+    // fall after new video work is unblocked and must not recapture release.
+    .owner20_idle_i                   (mainRegisterOwnerIdle),
+    .owner20_terminal_fault_i         (
+      io_ss_register_terminal_fault
+    ),
+    .owner20_bridge_terminal_fault_i  (
+      io_ss_register_restore_bridge_fault
+    ),
+    .owner22_validation_complete_i    (
+      eepromValidationComplete
+    ),
+    .owner22_validation_valid_i       (eepromValidationValid),
+    .owner22_write_complete_i         (eepromWriteComplete),
+    .owner22_write_valid_i            (eepromWriteValid),
+    .owner22_restore_load_i           (eepromRestoreLoad),
+    .owner22_restore_committed_i      (
+      io_ss_eeprom_restore_committed
+    ),
+    .owner22_idle_i                   (eepromOwnerIdle),
+    .owner22_terminal_fault_i         (
+      io_ss_eeprom_terminal_fault
+    ),
+    .main_stopped_o                   (io_ss_stopped),
+    .main_abort_ack_o                 (io_ss_abort_ack),
+    .state_debug_o                    (
+`ifdef CAVEBANPRESTO_SS_RELEASE_HW_DIAGNOSTIC
+      mainCommandStateDebug
+`endif
+    ),
+    .fault_debug_o                    (
+`ifdef CAVEBANPRESTO_SS_RELEASE_HW_DIAGNOSTIC
+      mainCommandFaultDebug
+`endif
+    )
+  );
+
+  CaveBanprestoSaveStateBusMux #(
+    .OWNER_COUNT(16),
+    .OWNER_BASE(4),
+    .SUPPORT_WIDTH(48),
+    .COMPILED_SUPPORT_BITMAP(SS_RAM_COMPILED_SUPPORT),
+    .RESPONSE_TIMEOUT_CYCLES(4096)
+  ) mainRamOwnerMux (
+    .clk_i             (clock),
+    .reset_i           (reset),
+    .runtime_support_i (ssRamRuntimeSupport),
+    .owners            (mainRamOwnerBus),
+    .upstream          (io_ss_ram_bus),
+    .multiple_ack_o    (ssRamBusMultipleAck),
+    .timeout_o         (ssRamBusTimeout),
+    .faulted_o         (ssRamBusFault),
+    .idle_o            (ssRamBusIdle)
+  );
+
+  // A claimed-idle client issuing a RAM cycle is a quiesce-contract failure.
+  // Every port wrapper blocks that cycle, while this reset-only fence prevents
+  // a partially captured/restored machine from being released as valid.
+  always @(posedge clock) begin
+    if (reset) begin
+      ssRamSafetyFault <= 1'b0;
+    end
+    else if ((|ssRamBlockedNormalAccess) ||
+             ((|ssRamTakeover) && !ssRamTakeoverPermitted)) begin
+      ssRamSafetyFault <= 1'b1;
+    end
+  end
+
+  assign io_ss_ram_takeover_active = |ssRamTakeover;
+  assign io_ss_ram_blocked_access = |ssRamBlockedNormalAccess;
+  assign io_ss_ram_idle =
+    ssRamBusIdle & !io_ss_ram_takeover_active;
+  assign io_ss_ram_terminal_fault =
+    ssRamBusFault |
+    ssRamSafetyFault |
+    ssRamBusMultipleAck |
+    ssRamBusTimeout;
+
   assign _mainRam_io_addr = _cpu_io_addr[14:0];
+  wire        mainRamSaveStateRd;
+  wire        mainRamSaveStateWr;
+  wire [1:0]  mainRamSaveStateMask;
+  wire [14:0] mainRamSaveStateAddr;
+  wire [15:0] mainRamSaveStateDin;
+  wire        mainRamPhysicalRd;
+  wire        mainRamPhysicalWr;
+  wire [1:0]  mainRamPhysicalMask;
+  wire [14:0] mainRamPhysicalAddr;
+  wire [15:0] mainRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd4),
+    .ADDR_WIDTH(15),
+    .ELEMENT_COUNT(32768)
+  ) mainRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(mainRam_io_rd),
+    .normal_wr_i(mainRam_io_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_mainRam_io_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(mainRamSaveStateRd),
+    .ram_wr_o(mainRamSaveStateWr),
+    .ram_mask_o(mainRamSaveStateMask),
+    .ram_addr_o(mainRamSaveStateAddr),
+    .ram_din_o(mainRamSaveStateDin),
+    .ram_dout_i(_mainRam_io_dout),
+    .takeover_active_o(ssRamTakeover[0]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[0]),
+    .ssbus(mainRamOwnerBus[0])
+  );
+  assign mainRamPhysicalRd =
+    highScoreRamOwned && !highScoreRamTargetSprite ?
+      highScoreRamRd : mainRamSaveStateRd;
+  assign mainRamPhysicalWr =
+    highScoreRamOwned && !highScoreRamTargetSprite ?
+      highScoreRamWr : mainRamSaveStateWr;
+  assign mainRamPhysicalMask =
+    highScoreRamOwned && !highScoreRamTargetSprite ?
+      highScoreRamMask : mainRamSaveStateMask;
+  assign mainRamPhysicalAddr =
+    highScoreRamOwned && !highScoreRamTargetSprite ?
+      highScoreRamAddr : mainRamSaveStateAddr;
+  assign mainRamPhysicalDin =
+    highScoreRamOwned && !highScoreRamTargetSprite ?
+      highScoreRamDin : mainRamSaveStateDin;
   CaveSinglePortRam #(
     .ADDR_WIDTH  (15),
     .DATA_WIDTH  (16),
@@ -2286,12 +3055,40 @@ module Main(
     .MASK_ENABLE (1)
   ) mainRam (
     .clock (clock),
-    .rd    (mainRam_io_rd),
-    .wr    (mainRam_io_wr),
-    .addr  (_mainRam_io_addr),
-    .mask  (mainRam_io_mask),
-    .din   (_cpu_io_dout),
+    .rd    (mainRamPhysicalRd),
+    .wr    (mainRamPhysicalWr),
+    .addr  (mainRamPhysicalAddr),
+    .mask  (mainRamPhysicalMask),
+    .din   (mainRamPhysicalDin),
     .dout  (_mainRam_io_dout)
+  );
+  wire        airGalletWorkRamPhysicalRd;
+  wire        airGalletWorkRamPhysicalWr;
+  wire [1:0]  airGalletWorkRamPhysicalMask;
+  wire [14:0] airGalletWorkRamPhysicalAddr;
+  wire [15:0] airGalletWorkRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd5),
+    .ADDR_WIDTH(15),
+    .ELEMENT_COUNT(32768)
+  ) airGalletWorkRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(airGalletWorkRamRead),
+    .normal_wr_i(airGalletWorkRamWrite),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(airGalletWorkRamAddr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(airGalletWorkRamPhysicalRd),
+    .ram_wr_o(airGalletWorkRamPhysicalWr),
+    .ram_mask_o(airGalletWorkRamPhysicalMask),
+    .ram_addr_o(airGalletWorkRamPhysicalAddr),
+    .ram_din_o(airGalletWorkRamPhysicalDin),
+    .ram_dout_i(airGalletWorkRamData),
+    .takeover_active_o(ssRamTakeover[1]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[1]),
+    .ssbus(mainRamOwnerBus[1])
   );
   CaveSinglePortRam #(
     .ADDR_WIDTH  (15),
@@ -2300,12 +3097,40 @@ module Main(
     .MASK_ENABLE (1)
   ) airGalletWorkRam (
     .clock (clock),
-    .rd    (airGalletWorkRamRead),
-    .wr    (airGalletWorkRamWrite),
-    .addr  (airGalletWorkRamAddr),
-    .mask  (mainRam_io_mask),
-    .din   (_cpu_io_dout),
+    .rd    (airGalletWorkRamPhysicalRd),
+    .wr    (airGalletWorkRamPhysicalWr),
+    .addr  (airGalletWorkRamPhysicalAddr),
+    .mask  (airGalletWorkRamPhysicalMask),
+    .din   (airGalletWorkRamPhysicalDin),
     .dout  (airGalletWorkRamData)
+  );
+  wire        airGalletLayer0ScratchRamPhysicalRd;
+  wire        airGalletLayer0ScratchRamPhysicalWr;
+  wire [1:0]  airGalletLayer0ScratchRamPhysicalMask;
+  wire [12:0] airGalletLayer0ScratchRamPhysicalAddr;
+  wire [15:0] airGalletLayer0ScratchRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd6),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(5120)
+  ) airGalletLayer0ScratchRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(airGalletLayer0ScratchRead),
+    .normal_wr_i(airGalletLayer0ScratchWrite),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(airGalletTilemapScratchAddr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(airGalletLayer0ScratchRamPhysicalRd),
+    .ram_wr_o(airGalletLayer0ScratchRamPhysicalWr),
+    .ram_mask_o(airGalletLayer0ScratchRamPhysicalMask),
+    .ram_addr_o(airGalletLayer0ScratchRamPhysicalAddr),
+    .ram_din_o(airGalletLayer0ScratchRamPhysicalDin),
+    .ram_dout_i(airGalletLayer0ScratchData),
+    .takeover_active_o(ssRamTakeover[2]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[2]),
+    .ssbus(mainRamOwnerBus[2])
   );
   CaveSinglePortRam #(
     .ADDR_WIDTH  (13),
@@ -2314,12 +3139,40 @@ module Main(
     .MASK_ENABLE (1)
   ) airGalletLayer0ScratchRam (
     .clock (clock),
-    .rd    (airGalletLayer0ScratchRead),
-    .wr    (airGalletLayer0ScratchWrite),
-    .addr  (airGalletTilemapScratchAddr),
-    .mask  (mainRam_io_mask),
-    .din   (_cpu_io_dout),
+    .rd    (airGalletLayer0ScratchRamPhysicalRd),
+    .wr    (airGalletLayer0ScratchRamPhysicalWr),
+    .addr  (airGalletLayer0ScratchRamPhysicalAddr),
+    .mask  (airGalletLayer0ScratchRamPhysicalMask),
+    .din   (airGalletLayer0ScratchRamPhysicalDin),
     .dout  (airGalletLayer0ScratchData)
+  );
+  wire        airGalletLayer1ScratchRamPhysicalRd;
+  wire        airGalletLayer1ScratchRamPhysicalWr;
+  wire [1:0]  airGalletLayer1ScratchRamPhysicalMask;
+  wire [12:0] airGalletLayer1ScratchRamPhysicalAddr;
+  wire [15:0] airGalletLayer1ScratchRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd7),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(5120)
+  ) airGalletLayer1ScratchRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(airGalletLayer1ScratchRead),
+    .normal_wr_i(airGalletLayer1ScratchWrite),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(airGalletTilemapScratchAddr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(airGalletLayer1ScratchRamPhysicalRd),
+    .ram_wr_o(airGalletLayer1ScratchRamPhysicalWr),
+    .ram_mask_o(airGalletLayer1ScratchRamPhysicalMask),
+    .ram_addr_o(airGalletLayer1ScratchRamPhysicalAddr),
+    .ram_din_o(airGalletLayer1ScratchRamPhysicalDin),
+    .ram_dout_i(airGalletLayer1ScratchData),
+    .takeover_active_o(ssRamTakeover[3]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[3]),
+    .ssbus(mainRamOwnerBus[3])
   );
   CaveSinglePortRam #(
     .ADDR_WIDTH  (13),
@@ -2328,12 +3181,40 @@ module Main(
     .MASK_ENABLE (1)
   ) airGalletLayer1ScratchRam (
     .clock (clock),
-    .rd    (airGalletLayer1ScratchRead),
-    .wr    (airGalletLayer1ScratchWrite),
-    .addr  (airGalletTilemapScratchAddr),
-    .mask  (mainRam_io_mask),
-    .din   (_cpu_io_dout),
+    .rd    (airGalletLayer1ScratchRamPhysicalRd),
+    .wr    (airGalletLayer1ScratchRamPhysicalWr),
+    .addr  (airGalletLayer1ScratchRamPhysicalAddr),
+    .mask  (airGalletLayer1ScratchRamPhysicalMask),
+    .din   (airGalletLayer1ScratchRamPhysicalDin),
     .dout  (airGalletLayer1ScratchData)
+  );
+  wire        airGalletLayer2ScratchRamPhysicalRd;
+  wire        airGalletLayer2ScratchRamPhysicalWr;
+  wire [1:0]  airGalletLayer2ScratchRamPhysicalMask;
+  wire [12:0] airGalletLayer2ScratchRamPhysicalAddr;
+  wire [15:0] airGalletLayer2ScratchRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd8),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(5120)
+  ) airGalletLayer2ScratchRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(airGalletLayer2ScratchRead),
+    .normal_wr_i(airGalletLayer2ScratchWrite),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(airGalletTilemapScratchAddr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(airGalletLayer2ScratchRamPhysicalRd),
+    .ram_wr_o(airGalletLayer2ScratchRamPhysicalWr),
+    .ram_mask_o(airGalletLayer2ScratchRamPhysicalMask),
+    .ram_addr_o(airGalletLayer2ScratchRamPhysicalAddr),
+    .ram_din_o(airGalletLayer2ScratchRamPhysicalDin),
+    .ram_dout_i(airGalletLayer2ScratchData),
+    .takeover_active_o(ssRamTakeover[4]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[4]),
+    .ssbus(mainRamOwnerBus[4])
   );
   CaveSinglePortRam #(
     .ADDR_WIDTH  (13),
@@ -2342,14 +3223,62 @@ module Main(
     .MASK_ENABLE (1)
   ) airGalletLayer2ScratchRam (
     .clock (clock),
-    .rd    (airGalletLayer2ScratchRead),
-    .wr    (airGalletLayer2ScratchWrite),
-    .addr  (airGalletTilemapScratchAddr),
-    .mask  (mainRam_io_mask),
-    .din   (_cpu_io_dout),
+    .rd    (airGalletLayer2ScratchRamPhysicalRd),
+    .wr    (airGalletLayer2ScratchRamPhysicalWr),
+    .addr  (airGalletLayer2ScratchRamPhysicalAddr),
+    .mask  (airGalletLayer2ScratchRamPhysicalMask),
+    .din   (airGalletLayer2ScratchRamPhysicalDin),
     .dout  (airGalletLayer2ScratchData)
   );
   assign _spriteRam_io_portA_addr = _cpu_io_addr[14:0];
+  wire        spriteRamSaveStateRd;
+  wire        spriteRamSaveStateWr;
+  wire [1:0]  spriteRamSaveStateMask;
+  wire [14:0] spriteRamSaveStateAddr;
+  wire [15:0] spriteRamSaveStateDin;
+  wire        spriteRamPhysicalRd;
+  wire        spriteRamPhysicalWr;
+  wire [1:0]  spriteRamPhysicalMask;
+  wire [14:0] spriteRamPhysicalAddr;
+  wire [15:0] spriteRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd9),
+    .ADDR_WIDTH(15),
+    .ELEMENT_COUNT(32768)
+  ) spriteRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(spriteRam_io_portA_rd),
+    .normal_wr_i(spriteRam_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_spriteRam_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(spriteRamSaveStateRd),
+    .ram_wr_o(spriteRamSaveStateWr),
+    .ram_mask_o(spriteRamSaveStateMask),
+    .ram_addr_o(spriteRamSaveStateAddr),
+    .ram_din_o(spriteRamSaveStateDin),
+    .ram_dout_i(_spriteRam_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[5]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[5]),
+    .ssbus(mainRamOwnerBus[5])
+  );
+  assign spriteRamPhysicalRd =
+    highScoreRamOwned && highScoreRamTargetSprite ?
+      highScoreRamRd : spriteRamSaveStateRd;
+  assign spriteRamPhysicalWr =
+    highScoreRamOwned && highScoreRamTargetSprite ?
+      highScoreRamWr : spriteRamSaveStateWr;
+  assign spriteRamPhysicalMask =
+    highScoreRamOwned && highScoreRamTargetSprite ?
+      highScoreRamMask : spriteRamSaveStateMask;
+  assign spriteRamPhysicalAddr =
+    highScoreRamOwned && highScoreRamTargetSprite ?
+      highScoreRamAddr : spriteRamSaveStateAddr;
+  assign spriteRamPhysicalDin =
+    highScoreRamOwned && highScoreRamTargetSprite ?
+      highScoreRamDin : spriteRamSaveStateDin;
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (15),
     .ADDR_WIDTH_B (12),
@@ -2360,11 +3289,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) spriteRam (
     .clock_a (clock),
-    .rd_a    (spriteRam_io_portA_rd),
-    .wr_a    (spriteRam_io_portA_wr),
-    .addr_a  (_spriteRam_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (spriteRamPhysicalRd),
+    .wr_a    (spriteRamPhysicalWr),
+    .addr_a  (spriteRamPhysicalAddr),
+    .mask_a  (spriteRamPhysicalMask),
+    .din_a   (spriteRamPhysicalDin),
     .dout_a  (_spriteRam_io_portA_dout),
     .clock_b (io_spriteClock),
     .rd_b    (io_gpuMem_sprite_vram_rd),
@@ -2372,6 +3301,34 @@ module Main(
     .dout_b  (io_gpuMem_sprite_vram_dout)
   );
   assign _vram8x8_0_io_portA_addr = _cpu_io_addr[12:0];
+  wire        vram8x8_0PhysicalRd;
+  wire        vram8x8_0PhysicalWr;
+  wire [1:0]  vram8x8_0PhysicalMask;
+  wire [12:0] vram8x8_0PhysicalAddr;
+  wire [15:0] vram8x8_0PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd11),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(8192)
+  ) vram8x8_0SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram8x8_0_io_portA_rd),
+    .normal_wr_i(vram8x8_0_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_vram8x8_0_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram8x8_0PhysicalRd),
+    .ram_wr_o(vram8x8_0PhysicalWr),
+    .ram_mask_o(vram8x8_0PhysicalMask),
+    .ram_addr_o(vram8x8_0PhysicalAddr),
+    .ram_din_o(vram8x8_0PhysicalDin),
+    .ram_dout_i(_vram8x8_0_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[7]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[7]),
+    .ssbus(mainRamOwnerBus[7])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (13),
     .ADDR_WIDTH_B (12),
@@ -2382,11 +3339,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram8x8_0 (
     .clock_a (clock),
-    .rd_a    (vram8x8_0_io_portA_rd),
-    .wr_a    (vram8x8_0_io_portA_wr),
-    .addr_a  (_vram8x8_0_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram8x8_0PhysicalRd),
+    .wr_a    (vram8x8_0PhysicalWr),
+    .addr_a  (vram8x8_0PhysicalAddr),
+    .mask_a  (vram8x8_0PhysicalMask),
+    .din_a   (vram8x8_0PhysicalDin),
     .dout_a  (_vram8x8_0_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2394,6 +3351,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_0_vram8x8_dout)
   );
   assign _vram8x8_1_io_portA_addr = _cpu_io_addr[12:0];
+  wire        vram8x8_1PhysicalRd;
+  wire        vram8x8_1PhysicalWr;
+  wire [1:0]  vram8x8_1PhysicalMask;
+  wire [12:0] vram8x8_1PhysicalAddr;
+  wire [15:0] vram8x8_1PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd14),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(8192)
+  ) vram8x8_1SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram8x8_1_io_portA_rd),
+    .normal_wr_i(vram8x8_1_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_vram8x8_1_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram8x8_1PhysicalRd),
+    .ram_wr_o(vram8x8_1PhysicalWr),
+    .ram_mask_o(vram8x8_1PhysicalMask),
+    .ram_addr_o(vram8x8_1PhysicalAddr),
+    .ram_din_o(vram8x8_1PhysicalDin),
+    .ram_dout_i(_vram8x8_1_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[10]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[10]),
+    .ssbus(mainRamOwnerBus[10])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (13),
     .ADDR_WIDTH_B (12),
@@ -2404,16 +3389,44 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram8x8_1 (
     .clock_a (clock),
-    .rd_a    (vram8x8_1_io_portA_rd),
-    .wr_a    (vram8x8_1_io_portA_wr),
-    .addr_a  (_vram8x8_1_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram8x8_1PhysicalRd),
+    .wr_a    (vram8x8_1PhysicalWr),
+    .addr_a  (vram8x8_1PhysicalAddr),
+    .mask_a  (vram8x8_1PhysicalMask),
+    .din_a   (vram8x8_1PhysicalDin),
     .dout_a  (_vram8x8_1_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
     .addr_b  (io_gpuMem_layer_1_vram8x8_addr),
     .dout_b  (io_gpuMem_layer_1_vram8x8_dout)
+  );
+  wire        vram8x8_2PhysicalRd;
+  wire        vram8x8_2PhysicalWr;
+  wire [1:0]  vram8x8_2PhysicalMask;
+  wire [12:0] vram8x8_2PhysicalAddr;
+  wire [15:0] vram8x8_2PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd17),
+    .ADDR_WIDTH(13),
+    .ELEMENT_COUNT(8192)
+  ) vram8x8_2SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram8x8_2_io_portA_rd),
+    .normal_wr_i(vram8x8_2_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(vram8x8_2_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram8x8_2PhysicalRd),
+    .ram_wr_o(vram8x8_2PhysicalWr),
+    .ram_mask_o(vram8x8_2PhysicalMask),
+    .ram_addr_o(vram8x8_2PhysicalAddr),
+    .ram_din_o(vram8x8_2PhysicalDin),
+    .ram_dout_i(_vram8x8_2_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[13]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[13]),
+    .ssbus(mainRamOwnerBus[13])
   );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (13),
@@ -2425,11 +3438,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram8x8_2 (
     .clock_a (clock),
-    .rd_a    (vram8x8_2_io_portA_rd),
-    .wr_a    (vram8x8_2_io_portA_wr),
-    .addr_a  (vram8x8_2_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram8x8_2PhysicalRd),
+    .wr_a    (vram8x8_2PhysicalWr),
+    .addr_a  (vram8x8_2PhysicalAddr),
+    .mask_a  (vram8x8_2PhysicalMask),
+    .din_a   (vram8x8_2PhysicalDin),
     .dout_a  (_vram8x8_2_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2437,6 +3450,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_2_vram8x8_dout)
   );
   assign _vram16x16_0_io_portA_addr = _cpu_io_addr[10:0];
+  wire        vram16x16_0PhysicalRd;
+  wire        vram16x16_0PhysicalWr;
+  wire [1:0]  vram16x16_0PhysicalMask;
+  wire [10:0] vram16x16_0PhysicalAddr;
+  wire [15:0] vram16x16_0PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd12),
+    .ADDR_WIDTH(11),
+    .ELEMENT_COUNT(2048)
+  ) vram16x16_0SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram16x16_0_io_portA_rd),
+    .normal_wr_i(vram16x16_0_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_vram16x16_0_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram16x16_0PhysicalRd),
+    .ram_wr_o(vram16x16_0PhysicalWr),
+    .ram_mask_o(vram16x16_0PhysicalMask),
+    .ram_addr_o(vram16x16_0PhysicalAddr),
+    .ram_din_o(vram16x16_0PhysicalDin),
+    .ram_dout_i(_vram16x16_0_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[8]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[8]),
+    .ssbus(mainRamOwnerBus[8])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (11),
     .ADDR_WIDTH_B (10),
@@ -2447,11 +3488,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram16x16_0 (
     .clock_a (clock),
-    .rd_a    (vram16x16_0_io_portA_rd),
-    .wr_a    (vram16x16_0_io_portA_wr),
-    .addr_a  (_vram16x16_0_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram16x16_0PhysicalRd),
+    .wr_a    (vram16x16_0PhysicalWr),
+    .addr_a  (vram16x16_0PhysicalAddr),
+    .mask_a  (vram16x16_0PhysicalMask),
+    .din_a   (vram16x16_0PhysicalDin),
     .dout_a  (_vram16x16_0_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2459,6 +3500,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_0_vram16x16_dout)
   );
   assign _vram16x16_1_io_portA_addr = _cpu_io_addr[10:0];
+  wire        vram16x16_1PhysicalRd;
+  wire        vram16x16_1PhysicalWr;
+  wire [1:0]  vram16x16_1PhysicalMask;
+  wire [10:0] vram16x16_1PhysicalAddr;
+  wire [15:0] vram16x16_1PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd15),
+    .ADDR_WIDTH(11),
+    .ELEMENT_COUNT(2048)
+  ) vram16x16_1SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram16x16_1_io_portA_rd),
+    .normal_wr_i(vram16x16_1_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_vram16x16_1_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram16x16_1PhysicalRd),
+    .ram_wr_o(vram16x16_1PhysicalWr),
+    .ram_mask_o(vram16x16_1PhysicalMask),
+    .ram_addr_o(vram16x16_1PhysicalAddr),
+    .ram_din_o(vram16x16_1PhysicalDin),
+    .ram_dout_i(_vram16x16_1_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[11]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[11]),
+    .ssbus(mainRamOwnerBus[11])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (11),
     .ADDR_WIDTH_B (10),
@@ -2469,11 +3538,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram16x16_1 (
     .clock_a (clock),
-    .rd_a    (vram16x16_1_io_portA_rd),
-    .wr_a    (vram16x16_1_io_portA_wr),
-    .addr_a  (_vram16x16_1_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram16x16_1PhysicalRd),
+    .wr_a    (vram16x16_1PhysicalWr),
+    .addr_a  (vram16x16_1PhysicalAddr),
+    .mask_a  (vram16x16_1PhysicalMask),
+    .din_a   (vram16x16_1PhysicalDin),
     .dout_a  (_vram16x16_1_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2481,6 +3550,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_1_vram16x16_dout)
   );
   assign _vram16x16_2_io_portA_addr = _cpu_io_addr[10:0];
+  wire        vram16x16_2PhysicalRd;
+  wire        vram16x16_2PhysicalWr;
+  wire [1:0]  vram16x16_2PhysicalMask;
+  wire [10:0] vram16x16_2PhysicalAddr;
+  wire [15:0] vram16x16_2PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd18),
+    .ADDR_WIDTH(11),
+    .ELEMENT_COUNT(2048)
+  ) vram16x16_2SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(vram16x16_2_io_portA_rd),
+    .normal_wr_i(vram16x16_2_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_vram16x16_2_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(vram16x16_2PhysicalRd),
+    .ram_wr_o(vram16x16_2PhysicalWr),
+    .ram_mask_o(vram16x16_2PhysicalMask),
+    .ram_addr_o(vram16x16_2PhysicalAddr),
+    .ram_din_o(vram16x16_2PhysicalDin),
+    .ram_dout_i(_vram16x16_2_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[14]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[14]),
+    .ssbus(mainRamOwnerBus[14])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (11),
     .ADDR_WIDTH_B (10),
@@ -2491,11 +3588,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) vram16x16_2 (
     .clock_a (clock),
-    .rd_a    (vram16x16_2_io_portA_rd),
-    .wr_a    (vram16x16_2_io_portA_wr),
-    .addr_a  (_vram16x16_2_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (vram16x16_2PhysicalRd),
+    .wr_a    (vram16x16_2PhysicalWr),
+    .addr_a  (vram16x16_2PhysicalAddr),
+    .mask_a  (vram16x16_2PhysicalMask),
+    .din_a   (vram16x16_2PhysicalDin),
     .dout_a  (_vram16x16_2_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2503,6 +3600,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_2_vram16x16_dout)
   );
   assign _lineRam_0_io_portA_addr = _cpu_io_addr[9:0];
+  wire       lineRam_0PhysicalRd;
+  wire       lineRam_0PhysicalWr;
+  wire [1:0] lineRam_0PhysicalMask;
+  wire [9:0] lineRam_0PhysicalAddr;
+  wire [15:0] lineRam_0PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd13),
+    .ADDR_WIDTH(10),
+    .ELEMENT_COUNT(1024)
+  ) lineRam_0SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(lineRam_0_io_portA_rd),
+    .normal_wr_i(lineRam_0_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_lineRam_0_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(lineRam_0PhysicalRd),
+    .ram_wr_o(lineRam_0PhysicalWr),
+    .ram_mask_o(lineRam_0PhysicalMask),
+    .ram_addr_o(lineRam_0PhysicalAddr),
+    .ram_din_o(lineRam_0PhysicalDin),
+    .ram_dout_i(_lineRam_0_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[9]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[9]),
+    .ssbus(mainRamOwnerBus[9])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (10),
     .ADDR_WIDTH_B (9),
@@ -2513,11 +3638,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) lineRam_0 (
     .clock_a (clock),
-    .rd_a    (lineRam_0_io_portA_rd),
-    .wr_a    (lineRam_0_io_portA_wr),
-    .addr_a  (_lineRam_0_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (lineRam_0PhysicalRd),
+    .wr_a    (lineRam_0PhysicalWr),
+    .addr_a  (lineRam_0PhysicalAddr),
+    .mask_a  (lineRam_0PhysicalMask),
+    .din_a   (lineRam_0PhysicalDin),
     .dout_a  (_lineRam_0_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2525,6 +3650,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_0_lineRam_dout)
   );
   assign _lineRam_1_io_portA_addr = _cpu_io_addr[9:0];
+  wire       lineRam_1PhysicalRd;
+  wire       lineRam_1PhysicalWr;
+  wire [1:0] lineRam_1PhysicalMask;
+  wire [9:0] lineRam_1PhysicalAddr;
+  wire [15:0] lineRam_1PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd16),
+    .ADDR_WIDTH(10),
+    .ELEMENT_COUNT(1024)
+  ) lineRam_1SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(lineRam_1_io_portA_rd),
+    .normal_wr_i(lineRam_1_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_lineRam_1_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(lineRam_1PhysicalRd),
+    .ram_wr_o(lineRam_1PhysicalWr),
+    .ram_mask_o(lineRam_1PhysicalMask),
+    .ram_addr_o(lineRam_1PhysicalAddr),
+    .ram_din_o(lineRam_1PhysicalDin),
+    .ram_dout_i(_lineRam_1_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[12]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[12]),
+    .ssbus(mainRamOwnerBus[12])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (10),
     .ADDR_WIDTH_B (9),
@@ -2535,11 +3688,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) lineRam_1 (
     .clock_a (clock),
-    .rd_a    (lineRam_1_io_portA_rd),
-    .wr_a    (lineRam_1_io_portA_wr),
-    .addr_a  (_lineRam_1_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (lineRam_1PhysicalRd),
+    .wr_a    (lineRam_1PhysicalWr),
+    .addr_a  (lineRam_1PhysicalAddr),
+    .mask_a  (lineRam_1PhysicalMask),
+    .din_a   (lineRam_1PhysicalDin),
     .dout_a  (_lineRam_1_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2547,6 +3700,34 @@ module Main(
     .dout_b  (io_gpuMem_layer_1_lineRam_dout)
   );
   assign _lineRam_2_io_portA_addr = _cpu_io_addr[9:0];
+  wire       lineRam_2PhysicalRd;
+  wire       lineRam_2PhysicalWr;
+  wire [1:0] lineRam_2PhysicalMask;
+  wire [9:0] lineRam_2PhysicalAddr;
+  wire [15:0] lineRam_2PhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd19),
+    .ADDR_WIDTH(10),
+    .ELEMENT_COUNT(1024)
+  ) lineRam_2SaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(lineRam_2_io_portA_rd),
+    .normal_wr_i(lineRam_2_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(_lineRam_2_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(lineRam_2PhysicalRd),
+    .ram_wr_o(lineRam_2PhysicalWr),
+    .ram_mask_o(lineRam_2PhysicalMask),
+    .ram_addr_o(lineRam_2PhysicalAddr),
+    .ram_din_o(lineRam_2PhysicalDin),
+    .ram_dout_i(_lineRam_2_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[15]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[15]),
+    .ssbus(mainRamOwnerBus[15])
+  );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (10),
     .ADDR_WIDTH_B (9),
@@ -2557,16 +3738,44 @@ module Main(
     .MASK_ENABLE  (1)
   ) lineRam_2 (
     .clock_a (clock),
-    .rd_a    (lineRam_2_io_portA_rd),
-    .wr_a    (lineRam_2_io_portA_wr),
-    .addr_a  (_lineRam_2_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (lineRam_2PhysicalRd),
+    .wr_a    (lineRam_2PhysicalWr),
+    .addr_a  (lineRam_2PhysicalAddr),
+    .mask_a  (lineRam_2PhysicalMask),
+    .din_a   (lineRam_2PhysicalDin),
     .dout_a  (_lineRam_2_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
     .addr_b  (io_gpuMem_layer_2_lineRam_addr),
     .dout_b  (io_gpuMem_layer_2_lineRam_dout)
+  );
+  wire        paletteRamPhysicalRd;
+  wire        paletteRamPhysicalWr;
+  wire [1:0]  paletteRamPhysicalMask;
+  wire [14:0] paletteRamPhysicalAddr;
+  wire [15:0] paletteRamPhysicalDin;
+  CaveBanprestoMainRamSaveStatePort #(
+    .OWNER_INDEX(8'd10),
+    .ADDR_WIDTH(15),
+    .ELEMENT_COUNT(32768)
+  ) paletteRamSaveStatePort (
+    .clk_i(clock),
+    .reset_i(reset),
+    .takeover_permitted_i(ssRamTakeoverPermitted),
+    .normal_rd_i(paletteRam_io_portA_rd),
+    .normal_wr_i(paletteRam_io_portA_wr),
+    .normal_mask_i(mainRam_io_mask),
+    .normal_addr_i(paletteRam_io_portA_addr),
+    .normal_din_i(_cpu_io_dout),
+    .ram_rd_o(paletteRamPhysicalRd),
+    .ram_wr_o(paletteRamPhysicalWr),
+    .ram_mask_o(paletteRamPhysicalMask),
+    .ram_addr_o(paletteRamPhysicalAddr),
+    .ram_din_o(paletteRamPhysicalDin),
+    .ram_dout_i(_paletteRam_io_portA_dout),
+    .takeover_active_o(ssRamTakeover[6]),
+    .blocked_normal_access_o(ssRamBlockedNormalAccess[6]),
+    .ssbus(mainRamOwnerBus[6])
   );
   CaveTrueDualPortRam #(
     .ADDR_WIDTH_A (15),
@@ -2578,11 +3787,11 @@ module Main(
     .MASK_ENABLE  (1)
   ) paletteRam (
     .clock_a (clock),
-    .rd_a    (paletteRam_io_portA_rd),
-    .wr_a    (paletteRam_io_portA_wr),
-    .addr_a  (paletteRam_io_portA_addr),
-    .mask_a  (mainRam_io_mask),
-    .din_a   (_cpu_io_dout),
+    .rd_a    (paletteRamPhysicalRd),
+    .wr_a    (paletteRamPhysicalWr),
+    .addr_a  (paletteRamPhysicalAddr),
+    .mask_a  (paletteRamPhysicalMask),
+    .din_a   (paletteRamPhysicalDin),
     .dout_a  (_paletteRam_io_portA_dout),
     .clock_b (io_videoClock),
     .rd_b    (1'b1),
@@ -2590,54 +3799,74 @@ module Main(
     .dout_b  (io_gpuMem_paletteRam_dout)
   );
   assign _layerRegs_0_io_mem_addr = _cpu_io_addr[1:0];
-  CaveLayerRegisterFile layerRegs_0 (
-    .clock       (clock),
-    .io_mem_wr   (layerRegs_0_io_mem_wr),
-    .io_mem_addr (_layerRegs_0_io_mem_addr),
-    .io_mem_mask (mainRam_io_mask),
-    .io_mem_din  (_cpu_io_dout),
-    .io_mem_dout (_layerRegs_0_io_mem_dout),
-    .io_regs_0   (_layerRegs_0_io_regs_0),
-    .io_regs_1   (_layerRegs_0_io_regs_1),
-    .io_regs_2   (_layerRegs_0_io_regs_2)
+  CaveBanprestoMainLayerRegisterFile layerRegs_0 (
+    .clock                     (clock),
+    .io_mem_wr                 (layerRegs_0_io_mem_wr),
+    .io_mem_addr               (_layerRegs_0_io_mem_addr),
+    .io_mem_mask               (mainRam_io_mask),
+    .io_mem_din                (_cpu_io_dout),
+    .ss_hold_i                 (mainRegisterStateHold),
+    .ss_restore_load_i         (mainRegisterRestoreLoad),
+    .ss_state_i                (mainRegisterRestoreState[47:0]),
+    .ss_state_o                (mainLayer0RegisterState),
+    .ss_blocked_normal_write_o (mainRegisterBlockedWrite[0]),
+    .io_mem_dout               (_layerRegs_0_io_mem_dout),
+    .io_regs_0                 (_layerRegs_0_io_regs_0),
+    .io_regs_1                 (_layerRegs_0_io_regs_1),
+    .io_regs_2                 (_layerRegs_0_io_regs_2)
   );
   assign _layerRegs_1_io_mem_addr = _cpu_io_addr[1:0];
-  CaveLayerRegisterFile layerRegs_1 (
-    .clock       (clock),
-    .io_mem_wr   (layerRegs_1_io_mem_wr),
-    .io_mem_addr (_layerRegs_1_io_mem_addr),
-    .io_mem_mask (mainRam_io_mask),
-    .io_mem_din  (_cpu_io_dout),
-    .io_mem_dout (_layerRegs_1_io_mem_dout),
-    .io_regs_0   (_layerRegs_1_io_regs_0),
-    .io_regs_1   (_layerRegs_1_io_regs_1),
-    .io_regs_2   (_layerRegs_1_io_regs_2)
+  CaveBanprestoMainLayerRegisterFile layerRegs_1 (
+    .clock                     (clock),
+    .io_mem_wr                 (layerRegs_1_io_mem_wr),
+    .io_mem_addr               (_layerRegs_1_io_mem_addr),
+    .io_mem_mask               (mainRam_io_mask),
+    .io_mem_din                (_cpu_io_dout),
+    .ss_hold_i                 (mainRegisterStateHold),
+    .ss_restore_load_i         (mainRegisterRestoreLoad),
+    .ss_state_i                (mainRegisterRestoreState[95:48]),
+    .ss_state_o                (mainLayer1RegisterState),
+    .ss_blocked_normal_write_o (mainRegisterBlockedWrite[1]),
+    .io_mem_dout               (_layerRegs_1_io_mem_dout),
+    .io_regs_0                 (_layerRegs_1_io_regs_0),
+    .io_regs_1                 (_layerRegs_1_io_regs_1),
+    .io_regs_2                 (_layerRegs_1_io_regs_2)
   );
   assign _layerRegs_2_io_mem_addr = _cpu_io_addr[1:0];
-  CaveLayerRegisterFile layerRegs_2 (
-    .clock       (clock),
-    .io_mem_wr   (layerRegs_2_io_mem_wr),
-    .io_mem_addr (_layerRegs_2_io_mem_addr),
-    .io_mem_mask (mainRam_io_mask),
-    .io_mem_din  (_cpu_io_dout),
-    .io_mem_dout (_layerRegs_2_io_mem_dout),
-    .io_regs_0   (_layerRegs_2_io_regs_0),
-    .io_regs_1   (_layerRegs_2_io_regs_1),
-    .io_regs_2   (_layerRegs_2_io_regs_2)
+  CaveBanprestoMainLayerRegisterFile layerRegs_2 (
+    .clock                     (clock),
+    .io_mem_wr                 (layerRegs_2_io_mem_wr),
+    .io_mem_addr               (_layerRegs_2_io_mem_addr),
+    .io_mem_mask               (mainRam_io_mask),
+    .io_mem_din                (_cpu_io_dout),
+    .ss_hold_i                 (mainRegisterStateHold),
+    .ss_restore_load_i         (mainRegisterRestoreLoad),
+    .ss_state_i                (mainRegisterRestoreState[143:96]),
+    .ss_state_o                (mainLayer2RegisterState),
+    .ss_blocked_normal_write_o (mainRegisterBlockedWrite[2]),
+    .io_mem_dout               (_layerRegs_2_io_mem_dout),
+    .io_regs_0                 (_layerRegs_2_io_regs_0),
+    .io_regs_1                 (_layerRegs_2_io_regs_1),
+    .io_regs_2                 (_layerRegs_2_io_regs_2)
   );
   assign _spriteRegs_io_mem_mask = {_cpu_io_uds, _cpu_io_lds};
-  CaveControlRegisterFile spriteRegs (
-    .clock       (clock),
-    .io_mem_wr   (spriteRegs_io_mem_wr),
-    .io_mem_addr (spriteRegs_io_mem_addr),
-    .io_mem_mask (_spriteRegs_io_mem_mask),
-    .io_mem_din  (_cpu_io_dout),
-    .io_regs_0   (_spriteRegs_io_regs_0),
-    .io_regs_1   (_spriteRegs_io_regs_1),
-    .io_regs_2   (/* unused */),
-    .io_regs_3   (/* unused */),
-    .io_regs_4   (_spriteRegs_io_regs_4),
-    .io_regs_5   (_spriteRegs_io_regs_5)
+  CaveBanprestoMainSpriteRegisterFile spriteRegs (
+    .clock                     (clock),
+    .io_mem_wr                 (spriteRegs_io_mem_wr),
+    .io_mem_addr               (spriteRegs_io_mem_addr),
+    .io_mem_mask               (_spriteRegs_io_mem_mask),
+    .io_mem_din                (_cpu_io_dout),
+    .ss_hold_i                 (mainRegisterStateHold),
+    .ss_restore_load_i         (mainRegisterRestoreLoad),
+    .ss_state_i                (mainRegisterRestoreState[271:144]),
+    .ss_state_o                (mainSpriteRegisterState),
+    .ss_blocked_normal_write_o (mainRegisterBlockedWrite[3]),
+    .io_regs_0                 (_spriteRegs_io_regs_0),
+    .io_regs_1                 (_spriteRegs_io_regs_1),
+    .io_regs_2                 (/* unused */),
+    .io_regs_3                 (/* unused */),
+    .io_regs_4                 (_spriteRegs_io_regs_4),
+    .io_regs_5                 (_spriteRegs_io_regs_5)
   );
   assign io_gpuMem_layer_0_regs_tileSize = io_gpuMem_layer_0_regs_r_1_tileSize;
   assign io_gpuMem_layer_0_regs_enable = io_gpuMem_layer_0_regs_r_1_enable;

@@ -19,6 +19,7 @@ module CaveSyncReadMem #(
   reg [DATA_WIDTH-1:0] memory [0:DEPTH-1];
   reg                  read_en_d;
   reg [ADDR_WIDTH-1:0] read_addr_d;
+  reg [DATA_WIDTH-1:0] read_data_mux;
 
   always @(posedge read_clk) begin
     read_en_d <= read_en;
@@ -30,5 +31,20 @@ module CaveSyncReadMem #(
       memory[write_addr] <= write_data;
   end
 
-  assign read_data = read_en_d ? memory[read_addr_d] : {DATA_WIDTH{1'bx}};
+  // Preserve the disabled/unknown output contract without asking the
+  // simulator to index the array before the registered address is known.
+  // For a known asserted enable this is identical to the former ternary.
+  always @(*) begin
+    read_data_mux = {DATA_WIDTH{1'bx}};
+    case (read_en_d)
+      1'b1: begin
+        if ((^read_addr_d !== 1'bx) &&
+            (read_addr_d < DEPTH))
+          read_data_mux = memory[read_addr_d];
+      end
+      default: ;
+    endcase
+  end
+
+  assign read_data = read_data_mux;
 endmodule

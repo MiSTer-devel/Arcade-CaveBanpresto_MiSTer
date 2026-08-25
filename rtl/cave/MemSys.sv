@@ -38,6 +38,21 @@ module MemSys(
   output [15:0] io_eeprom_dout,
   output        io_eeprom_wait_n,
   output        io_eeprom_valid,
+  input         io_ss_nvram_session_active,
+  input         io_ss_nvram_abort,
+  input         io_ss_nvram_rd,
+  input         io_ss_nvram_wr,
+  input  [6:0]  io_ss_nvram_addr,
+  input  [7:0]  io_ss_nvram_din,
+  output [7:0]  io_ss_nvram_dout,
+  output        io_ss_nvram_wait_n,
+  output        io_ss_nvram_valid,
+  output        io_ss_nvram_prepared,
+  output        io_ss_nvram_busy,
+  output        io_ss_nvram_flush_done,
+  output        io_ss_nvram_timeout,
+  output        io_ss_nvram_fatal,
+  output [2:0]  io_ss_nvram_fatal_reason,
   input         io_soundRom_0_rd,
   input  [24:0] io_soundRom_0_addr,
   output [7:0]  io_soundRom_0_dout,
@@ -198,6 +213,14 @@ module MemSys(
   wire [15:0] eepromCacheInDout;
   wire        eepromCacheInWaitN;
   wire        eepromCacheInValid;
+  wire        eepromCachePortRd;
+  wire        eepromCachePortWr;
+  wire [6:0]  eepromCachePortAddr;
+  wire [15:0] eepromCachePortDin;
+  wire [15:0] eepromCachePortDout;
+  wire        eepromCachePortWaitN;
+  wire        eepromCachePortValid;
+  wire        eepromCacheLocalReset;
   wire        eepromCacheOutRd;
   wire        eepromCacheOutWr;
   wire [24:0] eepromCacheOutAddr;
@@ -262,8 +285,22 @@ module MemSys(
   wire [31:0] ddrSpriteTileRomAddr =
     spriteTileRomLocalAddr + (spriteRomReadOffset + IOCTL_DOWNLOAD_BASE_ADDR);
 
+  // Existing top-level instances may omit the new owner-21 ports until the
+  // Cave/router/controller hookup lands.  Four-state sanitization keeps that
+  // interim build exactly on the normal NVRAM path instead of allowing an
+  // unconnected Z to start a maintenance session.
+  wire ssNvramSessionActive =
+    io_ss_nvram_session_active === 1'b1;
+  wire ssNvramAbort = io_ss_nvram_abort === 1'b1;
+  wire ssNvramRd = io_ss_nvram_rd === 1'b1;
+  wire ssNvramWr = io_ss_nvram_wr === 1'b1;
+
+  // CaveGameConfig EEPROM bases are 512 KiB aligned, while the NVRAM cache
+  // emits only byte offsets 0x00..0xFE.  The fields are therefore disjoint;
+  // compose them directly instead of placing a 25-bit carry chain on the
+  // cache-eviction-to-SDRAM request path.
   wire [24:0] eepromSdramAddr =
-    eepromCacheOutAddr + gameConfigEepromOffsetReg[24:0];
+    eepromCacheOutAddr | gameConfigEepromOffsetReg[24:0];
   wire [24:0] soundRom0SdramAddr =
     soundRomCache0OutAddr + gameConfigSound0RomOffsetReg[24:0];
   wire [24:0] soundRom1CacheInAddr =
@@ -469,17 +506,53 @@ module MemSys(
     .io_out_valid  (progRomCacheOutValid)
   );
 
+  CaveBanprestoMemSysNvramSaveState nvramSaveState (
+    .clk_i             (clock),
+    .reset_i           (reset),
+    .enable_i          (readyEnableReg),
+    .normal_rd_i       (eepromCacheInRd),
+    .normal_wr_i       (eepromCacheInWr),
+    .normal_addr_i     (eepromCacheInAddr),
+    .normal_din_i      (eepromCacheInDin),
+    .normal_dout_o     (eepromCacheInDout),
+    .normal_wait_n_o   (eepromCacheInWaitN),
+    .normal_valid_o    (eepromCacheInValid),
+    .session_active_i  (ssNvramSessionActive),
+    .abort_i           (ssNvramAbort),
+    .owner_rd_i        (ssNvramRd),
+    .owner_wr_i        (ssNvramWr),
+    .owner_addr_i      (io_ss_nvram_addr),
+    .owner_din_i       (io_ss_nvram_din),
+    .owner_dout_o      (io_ss_nvram_dout),
+    .owner_wait_n_o    (io_ss_nvram_wait_n),
+    .owner_valid_o     (io_ss_nvram_valid),
+    .prepared_o        (io_ss_nvram_prepared),
+    .busy_o            (io_ss_nvram_busy),
+    .flush_done_o      (io_ss_nvram_flush_done),
+    .timeout_o         (io_ss_nvram_timeout),
+    .fatal_o           (io_ss_nvram_fatal),
+    .fatal_reason_o    (io_ss_nvram_fatal_reason),
+    .cache_reset_o     (eepromCacheLocalReset),
+    .cache_rd_o        (eepromCachePortRd),
+    .cache_wr_o        (eepromCachePortWr),
+    .cache_addr_o      (eepromCachePortAddr),
+    .cache_din_o       (eepromCachePortDin),
+    .cache_dout_i      (eepromCachePortDout),
+    .cache_wait_n_i    (eepromCachePortWaitN),
+    .cache_valid_i     (eepromCachePortValid)
+  );
+
   CaveNvramWriteBackCache eepromCache (
     .clock         (clock),
-    .reset         (reset),
+    .reset         (reset | eepromCacheLocalReset),
     .io_enable     (readyEnableReg),
-    .io_in_rd      (eepromCacheInRd),
-    .io_in_wr      (eepromCacheInWr),
-    .io_in_addr    (eepromCacheInAddr),
-    .io_in_din     (eepromCacheInDin),
-    .io_in_dout    (eepromCacheInDout),
-    .io_in_wait_n  (eepromCacheInWaitN),
-    .io_in_valid   (eepromCacheInValid),
+    .io_in_rd      (eepromCachePortRd),
+    .io_in_wr      (eepromCachePortWr),
+    .io_in_addr    (eepromCachePortAddr),
+    .io_in_din     (eepromCachePortDin),
+    .io_in_dout    (eepromCachePortDout),
+    .io_in_wait_n  (eepromCachePortWaitN),
+    .io_in_valid   (eepromCachePortValid),
     .io_out_rd     (eepromCacheOutRd),
     .io_out_wr     (eepromCacheOutWr),
     .io_out_addr   (eepromCacheOutAddr),
